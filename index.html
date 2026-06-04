@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EventAI | Deep Search</title>
+    <meta name="description" content="EventAI — AI-powered facial recognition search engine. Upload selfies, scan event albums, and find every photo you appear in.">
+    <meta name="theme-color" content="#070b12">
+    <title>EventAI | AI Face Search Engine</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
-    <!-- face-api.js for CLIENT-SIDE face validation before upload -->
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 
     <style>
@@ -584,6 +586,7 @@
                 </div>
 
                 <button id="btn-search" class="btn btn-scan">Start Deep Search</button>
+                <button id="btn-cancel" class="btn hidden" style="margin-top:0.5rem;background:rgba(248,113,113,0.1);color:var(--red);border:1px solid rgba(248,113,113,0.25);" onclick="cancelScan()">✕ Cancel Scan</button>
 
                 <!-- Progress -->
                 <div id="progress-area" class="hidden" style="margin-top:1rem;">
@@ -619,6 +622,8 @@ let selectedFiles   = [];
 let scanMode        = 'speed';   // 'speed' | 'accurate'
 let faceApiReady    = false;
 let scanStartTime   = 0;
+let scanAbortController = null;
+let isScanning      = false;
 
 // ══════════════════════════════════════════════════════════
 //  TOAST
@@ -959,6 +964,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return toast('⚠ Provide a Drive link OR upload local photos', 'error');
 
         const btnScan   = document.getElementById('btn-search');
+        const btnCancel = document.getElementById('btn-cancel');
         const progArea  = document.getElementById('progress-area');
         const scanStats = document.getElementById('scan-stats');
         const mwrap     = document.getElementById('match-preview-wrap');
@@ -971,16 +977,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         mstrip.innerHTML = '';
         btnScan.disabled    = true;
         btnScan.textContent = 'Scanning…';
+        btnCancel.classList.remove('hidden');
         scanLine.classList.add('active');
         scanStartTime = Date.now();
+        isScanning = true;
+        scanAbortController = new AbortController();
 
-        // --- NEW: LOCK INPUTS ---
+        // Lock all inputs during scan
         drInp.disabled = true;
         drInp.style.opacity = '0.5';
         document.getElementById('local-trigger').style.pointerEvents = 'none';
         document.getElementById('local-trigger').style.opacity = '0.5';
         slider.disabled = true;
         slider.style.opacity = '0.5';
+        document.getElementById('mode-speed').disabled = true;
+        document.getElementById('mode-speed').style.opacity = '0.5';
+        document.getElementById('mode-acc').disabled = true;
+        document.getElementById('mode-acc').style.opacity = '0.5';
         // ------------------------
         // Reset stats
         ['st-scanned','st-matched','st-rate','live-ct','prog-count'].forEach(id => {
@@ -1007,7 +1020,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         let liveMatches = 0;
 
         try {
-            const response = await fetch(endpoint, { method: 'POST', body: fd });
+            const response = await fetch(endpoint, { method: 'POST', body: fd, signal: scanAbortController.signal });
             if (!response.ok) {
                 const errText = await response.text();
                 toast('Server error: ' + errText.slice(0, 80), 'error');
@@ -1074,10 +1087,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                         document.getElementById('st-scanned').textContent     = totalPhotos;
                         const rate = totalPhotos > 0 ? Math.round((data.matched/totalPhotos)*100) : 0;
                         document.getElementById('st-rate').textContent        = rate + '%';
-                        document.getElementById('eta-text').textContent       = 'Done ✓';
+                        // Show scan duration
+                        const dur = data.duration ? `${data.duration}s` : `${((Date.now() - scanStartTime)/1000).toFixed(1)}s`;
+                        document.getElementById('eta-text').textContent       = `Done ✓ (${dur})`;
                         scanLine.classList.remove('active');
-                        toast(`🎉 Done! ${data.matched} photo${data.matched!==1?'s':''} with you`);
-                        setTimeout(() => window.location.href = `/download/${data.search_id}`, 1800);
+
+                        if (data.matched === 0) {
+                            // No matches — show friendly message, don't download
+                            const msg = data.message || 'No matching photos found. Try more selfies or increase tolerance.';
+                            toast(`📭 ${msg}`, 'warn');
+                        } else {
+                            toast(`🎉 Done! ${data.matched} photo${data.matched!==1?'s':''} found in ${dur}`);
+                            if (data.search_id) {
+                                setTimeout(() => window.location.href = `/download/${data.search_id}`, 1800);
+                            }
+                        }
 
                     } else if (data.type === 'error') {
                         toast('AI error: ' + (data.message || 'unknown'), 'error');
@@ -1086,66 +1110,48 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
         } catch(e) {
-            toast('Connection failed. Is the backend running?', 'error');
+            if (e.name === 'AbortError') {
+                toast('Scan cancelled', 'warn');
+            } else {
+                toast('Connection failed. Is the backend running?', 'error');
+            }
             scanLine.classList.remove('active');
         } finally {
+            isScanning = false;
             btnScan.disabled    = false;
             btnScan.textContent = 'Start Deep Search';
+            btnCancel.classList.add('hidden');
             
-            // --- NEW: UNLOCK INPUTS ---
+            // Unlock all inputs
             drInp.disabled = false;
             drInp.style.opacity = '1';
             document.getElementById('local-trigger').style.pointerEvents = 'auto';
             document.getElementById('local-trigger').style.opacity = '1';
             slider.disabled = false;
             slider.style.opacity = '1';
-            // --------------------------
+            document.getElementById('mode-speed').disabled = false;
+            document.getElementById('mode-speed').style.opacity = '1';
+            document.getElementById('mode-acc').disabled = false;
+            document.getElementById('mode-acc').style.opacity = '1';
         }
     });
+
+    // ── Handle OAuth error from redirect
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('auth_error')) {
+        toast('Login failed. Please try again.', 'error');
+        window.history.replaceState({}, '', '/');
+    }
 });
+
+// Cancel scan function
+function cancelScan() {
+    if (scanAbortController) {
+        scanAbortController.abort();
+        scanAbortController = null;
+    }
+}
 </script>
 
-<!-- ════════════════════════════════════════════════════════
-     BACKEND UPGRADE NOTES (read this!)
-     ════════════════════════════════════════════════════════
-     The frontend now passes these params to your backend:
-
-     /upload-reference:
-       num_jitters=10   → face_recognition.face_encodings(img, num_jitters=10)
-       model=large      → face_recognition.face_encodings(img, model='large')
-                          (large model = 68-point landmark, much more accurate)
-
-     /search or /search-local:
-       model=cnn|hog    → face_recognition.face_locations(img, model=model)
-       upsample=0|1     → face_recognition.face_locations(img, number_of_times_to_upsample=upsample)
-       tolerance=float  → face_recognition.compare_faces(known, unknown, tolerance=tolerance)
-
-     CRITICAL backend fix — average your reference encodings:
-     
-       import numpy as np
-       from concurrent.futures import ThreadPoolExecutor
-       
-       # On /upload-reference: store all encodings, not just one
-       all_encodings = []
-       for ref in user_references:
-           all_encodings.extend(ref.encodings)  # each ref can have multiple
-       avg_encoding = np.mean(all_encodings, axis=0)  # single averaged embedding
-       
-       # Use compare_faces with averaged embedding + distance check:
-       matches = face_recognition.compare_faces([avg_encoding], face_enc, tolerance=tolerance)
-       dist    = face_recognition.face_distance([avg_encoding], face_enc)[0]
-       # Only accept if BOTH match is True AND dist < tolerance:
-       if matches[0] and dist < tolerance: ...
-       
-       # Parallel scan with ThreadPoolExecutor:
-       with ThreadPoolExecutor(max_workers=8) as pool:
-           results = list(pool.map(scan_single_photo, photo_list))
-       
-       # Pre-resize before encoding (big speed win):
-       from PIL import Image
-       img = Image.open(path)
-       img.thumbnail((1200, 1200))  # don't encode 12MP photos
-       img_array = np.array(img.convert('RGB'))
--->
 </body>
 </html>

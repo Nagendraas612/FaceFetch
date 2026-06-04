@@ -1,12 +1,13 @@
 """
 database.py
 Async MongoDB connection via Motor.
-Uses a 'One Section Per User' model for scalability and token persistence.
-Includes health-check ping for FastAPI startup.
+Uses a 'One Document Per User' model for scalability and token persistence.
+Includes health-check ping, index management, and retry logic.
 """
 
 import os
 import logging
+import asyncio
 from typing import Optional
 
 import motor.motor_asyncio
@@ -21,12 +22,19 @@ MONGO_URI: str = os.getenv("MONGO_URI", "")
 if not MONGO_URI:
     raise EnvironmentError("MONGO_URI is not set in the .env file.")
 
+# ── Constants ─────────────────────────────────────────────────────────────────
+DB_NAME = "eventai"
+USER_COLLECTION = "user_profiles"
+CONNECT_RETRY_ATTEMPTS = 3
+CONNECT_RETRY_DELAY = 2  # seconds
+
 # ── Motor client ──────────────────────────────────────────────────────────────
 _client: Optional[motor.motor_asyncio.AsyncIOMotorClient] = None
 _db = None
 
 
 def get_client() -> motor.motor_asyncio.AsyncIOMotorClient:
+    """Get or create the Motor client with connection pooling."""
     global _client
     if _client is None:
         _client = motor.motor_asyncio.AsyncIOMotorClient(
@@ -38,9 +46,10 @@ def get_client() -> motor.motor_asyncio.AsyncIOMotorClient:
 
 
 def get_db():
+    """Get the database instance."""
     global _db
     if _db is None:
-        _db = get_client()["eventai"]
+        _db = get_client()[DB_NAME]
     return _db
 
 
@@ -54,47 +63,71 @@ async def ping() -> bool:
         return False
 
 
-# ── Face-encoding & User Management ──────────────────────────────────────────
-# We now use one collection for everything related to a user
-USER_COLLECTION = "user_profiles"
-
-
-async def save_face_encoding(user_id: str, filename: str, encoding) -> str:
+async def ensure_indexes():
     """
-    Pushes a new encoding into the user's specific 'references' array.
-    Uses 'upsert' to create the user section if it doesn't exist.
+    Create database indexes for performance.
+    Safe to call multiple times (idempotent).
+    """
+    try:
+        db = get_db()
+        collection = db[USER_COLLECTION]
 
-    SAFE VERSION:
-    Stores encoding as a plain list of floats instead of pickle binary.
+        # Index on user_id for fast lookups
+        await collection.create_index("user_id", unique=True)
+
+        logger.info("✓ Database indexes verified")
+    except Exception as e:
+        logger.warning("Index creation warning: %s", e)
+
+
+async def ping_with_retry() -> bool:
+    """
+    Try to connect to MongoDB with retry logic.
+    Used during app startup for resilience against transient network issues.
+    """
+    for attempt in range(1, CONNECT_RETRY_ATTEMPTS + 1):
+        if await ping():
+            return True
+        if attempt < CONNECT_RETRY_ATTEMPTS:
+            logger.warning(
+                "MongoDB connection attempt %d/%d failed, retrying in %ds...",
+                attempt, CONNECT_RETRY_ATTEMPTS, CONNECT_RETRY_DELAY
+            )
+            await asyncio.sleep(CONNECT_RETRY_DELAY)
+    return False
+
+
+# ── Face-encoding & User Management ──────────────────────────────────────────
+
+async def save_face_encoding(user_id: str, filename: str, encoding: list) -> str:
+    """
+    Pushes a new encoding into the user's 'references' array.
+    Uses 'upsert' to create the user document if it doesn't exist.
+    Stores encoding as a plain list of floats (safe — no pickle/binary).
     """
     db = get_db()
-
-    # Generate a unique ID for this specific photo reference
     ref_id = ObjectId()
 
     new_reference = {
         "ref_id": ref_id,
         "filename": filename,
-        "encoding": [float(x) for x in encoding]
+        "encoding": [float(x) for x in encoding],
     }
 
-    # Update the single document for this user_id
     await db[USER_COLLECTION].update_one(
         {"user_id": user_id},
         {"$push": {"references": new_reference}},
-        upsert=True
+        upsert=True,
     )
 
-    logger.info("Pushed new face reference to user profile: %s", user_id)
+    logger.info("Saved face reference for user %s (filename: %s)", user_id, filename)
     return str(ref_id)
 
 
 async def load_face_encodings(user_id: str) -> list:
     """
-    Retrieves the user's single document and extracts all encodings from the array.
-
-    SAFE VERSION:
-    Loads plain numeric arrays directly from MongoDB.
+    Retrieves all face encodings for a user.
+    Returns a list of plain numeric arrays.
     """
     db = get_db()
     user_profile = await db[USER_COLLECTION].find_one({"user_id": user_id})
@@ -108,33 +141,49 @@ async def load_face_encodings(user_id: str) -> list:
         if "encoding" in ref
     ]
 
-    logger.info("Loaded %d encoding(s) from user section: %s", len(encodings), user_id)
+    logger.info("Loaded %d encoding(s) for user %s", len(encodings), user_id)
     return encodings
 
 
+async def get_encoding_count(user_id: str) -> int:
+    """Get the number of saved face encodings without loading them all."""
+    db = get_db()
+    result = await db[USER_COLLECTION].aggregate([
+        {"$match": {"user_id": user_id}},
+        {"$project": {"count": {"$size": {"$ifNull": ["$references", []]}}}}
+    ]).to_list(1)
+
+    if result:
+        return result[0].get("count", 0)
+    return 0
+
+
 async def get_all_references(user_id: str) -> list:
+    """
+    Get all references for a user (without the encoding data, for listing).
+    Returns cleaned data with string ref_ids.
+    """
     db = get_db()
     user_profile = await db[USER_COLLECTION].find_one(
         {"user_id": user_id},
-        {"references.encoding": 0}
+        {"references.encoding": 0},  # Exclude encoding data for efficiency
     )
 
     if not user_profile or "references" not in user_profile:
         return []
 
-    # Clean the data here so the rest of the app doesn't have to worry about ObjectIds
     cleaned_refs = []
     for ref in user_profile["references"]:
         cleaned_refs.append({
             "ref_id": str(ref["ref_id"]),
-            "filename": ref["filename"]
+            "filename": ref["filename"],
         })
     return cleaned_refs
 
 
 async def delete_specific_reference(user_id: str, ref_id: str) -> bool:
     """
-    Deletes a specific Face DNA reference from the user's document using the ref_id.
+    Deletes a specific Face DNA reference from the user's document.
     """
     try:
         db = get_db()
@@ -142,40 +191,39 @@ async def delete_specific_reference(user_id: str, ref_id: str) -> bool:
 
         result = await db[USER_COLLECTION].update_one(
             {"user_id": user_id},
-            {"$pull": {"references": {"ref_id": object_id}}}
+            {"$pull": {"references": {"ref_id": object_id}}},
         )
 
         return result.modified_count > 0
     except Exception as e:
-        logger.error(f"Error deleting reference: {e}")
+        logger.error("Error deleting reference %s: %s", ref_id, e)
         return False
 
 
 async def delete_face_encodings(user_id: str) -> int:
-    """
-    Deletes all saved face references for a given user.
-    """
+    """Deletes all saved face references for a given user."""
     db = get_db()
     result = await db[USER_COLLECTION].update_one(
         {"user_id": user_id},
-        {"$set": {"references": []}}
+        {"$set": {"references": []}},
     )
     return result.modified_count
 
 
-# ── Token Persistence (The 401 Fix) ──────────────────────────────────────────
+# ── Token Persistence ────────────────────────────────────────────────────────
 
 async def save_refresh_token(user_id: str, refresh_token: str):
-    """Stores the refresh token so we can stay logged in during long scans."""
+    """Stores the refresh token for persistent auth during long scans."""
     db = get_db()
     await db[USER_COLLECTION].update_one(
         {"user_id": user_id},
         {"$set": {"refresh_token": refresh_token}},
-        upsert=True
+        upsert=True,
     )
 
 
 async def get_refresh_token(user_id: str) -> Optional[str]:
+    """Retrieve the stored refresh token for a user."""
     db = get_db()
     user = await db[USER_COLLECTION].find_one({"user_id": user_id})
     return user.get("refresh_token") if user else None

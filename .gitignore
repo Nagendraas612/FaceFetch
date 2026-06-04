@@ -12,6 +12,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Logs
+*.log
+
+# Build artifacts
+*.zip
+tmp/
+
 # Mac OS junk files
 .DS_Store
 .vercel
