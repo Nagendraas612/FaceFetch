@@ -31,7 +31,13 @@ DRIVE_API_BASE   = "https://www.googleapis.com/drive/v3"
 DRIVE_LIST_URL   = f"{DRIVE_API_BASE}/files"
 DRIVE_DL_URL     = f"{DRIVE_API_BASE}/files/{{file_id}}?alt=media"
 PAGE_SIZE        = 100
-MAX_WORKERS      = 6
+
+# Detect if running on Render's constrained free-tier environment
+IS_RENDER = os.getenv("RENDER") == "true"
+
+# CPU-bound tasks should not exceed 2 workers on Render to avoid OOM crashes and CPU thrashing
+MAX_WORKERS      = 2 if IS_RENDER else 6
+
 SUPPORTED_EXTS   = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 
 # Reference image settings — higher quality for the "master DNA"
@@ -382,6 +388,14 @@ def run_deep_search(
     progress_callback=None,
 ) -> bytes:
     """Search for matching faces in a Google Drive folder."""
+    global MAX_WORKERS
+
+    # Render CPU-only safety fallback: CNN is extremely memory/CPU intensive on CPU.
+    # We automatically switch to HOG but enable upsample=1 for better accuracy.
+    if IS_RENDER and model_type == "cnn":
+        logger.info("Render environment detected: falling back from CNN to HOG model for CPU/memory safety.")
+        model_type = "hog"
+        upsample = max(1, upsample)
 
     token_state = {
         "access_token": access_token,
@@ -444,6 +458,13 @@ def run_local_search(
     progress_callback=None,
 ) -> bytes:
     """Search for matching faces in locally uploaded files."""
+
+    # Render CPU-only safety fallback: CNN is extremely memory/CPU intensive on CPU.
+    # We automatically switch to HOG but enable upsample=1 for better accuracy.
+    if IS_RENDER and model_type == "cnn":
+        logger.info("Render environment detected: falling back from CNN to HOG model for CPU/memory safety.")
+        model_type = "hog"
+        upsample = max(1, upsample)
 
     master_dna = prepare_encodings(known_encodings)
 
