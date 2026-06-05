@@ -1,37 +1,6 @@
 """
 engine.py
 Advanced face-search engine for FaceFetch with Google Photos-level accuracy.
-
-KEY ACCURACY TECHNIQUES:
-  1. CLAHE preprocessing — Contrast-Limited Adaptive Histogram Equalization
-     normalises uneven lighting, rescuing faces in shadow/backlit photos.
-  2. Face alignment — Landmark-based affine transform aligns faces to a
-     canonical pose before encoding, dramatically reducing pose-variance noise.
-  3. Multi-scale detection — Cascaded detection at multiple resolutions
-     (standard → upsampled → CNN fallback) catches small/distant faces.
-  4. Ensemble voting — Combines Euclidean distance AND cosine similarity;
-     a face is matched when EITHER metric is confident, reducing false negatives.
-  5. Horizontal flip augmentation — Reference images are encoded both
-     normally and mirrored, doubling the reference cluster coverage.
-  6. Multi-reference "Master DNA" — Averaged encoding from all references
-     acts as a denoised centroid for robust matching.
-
-GOOGLE PHOTOS-STYLE APPROACH:
-  • Multiple reference angles + flip augmentation → robust "face cluster"
-  • Averaged master DNA reduces noise; individual encodings preserve detail
-  • CLAHE + alignment make candidate faces lighting/pose-invariant
-  • Ensemble voting catches faces that slip past a single metric
-  • Lower default tolerance (0.50) with adaptive near-miss recovery
-
-ACCURACY GAINS:
-  • Before: ~10% recall (5 out of 50 photos)
-  • After:  ~90%+ recall with 2–3 reference photos
-  • Works well in group photos, varied lighting, and different angles
-
-STORAGE EFFICIENCY:
-  • All face encodings stored in user's database/local JSON (128 floats per face)
-  • No server-side storage of target album photos
-  • Render-compatible with free-tier constraints
 """
 
 from __future__ import annotations
@@ -59,56 +28,39 @@ DRIVE_LIST_URL   = f"{DRIVE_API_BASE}/files"
 DRIVE_DL_URL     = f"{DRIVE_API_BASE}/files/{{file_id}}?alt=media"
 PAGE_SIZE        = 100
 
-# Detect if running on Render's constrained free-tier environment
 IS_RENDER = os.getenv("RENDER") == "true"
-
-# CPU-bound tasks should not exceed 2 workers on Render to avoid OOM crashes
-MAX_WORKERS      = 2 if IS_RENDER else 6
+MAX_WORKERS      = 1
 
 SUPPORTED_EXTS   = {
     ".jpg", ".jpeg", ".png", ".webp", ".bmp",
     ".tiff", ".heic", ".heif", ".jfif", ".gif",
 }
 
-# Reference image settings — higher quality for the "master DNA"
 REF_MAX_SIZE     = 1024
-REF_NUM_JITTERS  = 5       # More jitters = more accurate (slower)
+REF_NUM_JITTERS  = 5
 
-# Scan image settings — balance speed and detection
-SCAN_MAX_SIZE    = 1000    # Larger for better face detection
+SCAN_MAX_SIZE    = 1000
 SCAN_QUALITY     = 85
 
-# Token refresh settings
 TOKEN_REFRESH_MAX_RETRIES = 3
-TOKEN_REFRESH_BACKOFF     = 2  # seconds
+TOKEN_REFRESH_BACKOFF     = 2
 
-# Drive API retry settings
 DRIVE_API_MAX_RETRIES     = 3
-DRIVE_API_BACKOFF         = 1  # seconds
+DRIVE_API_BACKOFF         = 1
 
-# Google API Key for public folder access
 GOOGLE_API_KEY            = os.getenv("GOOGLE_API_KEY", "")
 
-# Ensemble voting thresholds
-COSINE_MATCH_THRESHOLD    = 0.88   # cosine similarity above this → match
-COSINE_BOOST_THRESHOLD    = 0.82   # cosine above this gives tolerance boost
-NEAR_MISS_MARGIN          = 0.08   # adaptive tolerance extension for near-misses
-CONSISTENCY_MARGIN        = 0.12   # max spread for multi-ref consistency check
+COSINE_MATCH_THRESHOLD    = 0.88
+COSINE_BOOST_THRESHOLD    = 0.82
+NEAR_MISS_MARGIN          = 0.08
+CONSISTENCY_MARGIN        = 0.12
 
-# CLAHE parameters
 CLAHE_CLIP_LIMIT          = 2.0
 CLAHE_TILE_SIZE           = 8
 
 
 # ── CLAHE preprocessing ──────────────────────────────────────────────────────
 def _apply_clahe(img_arr: np.ndarray) -> np.ndarray:
-    """
-    Apply CLAHE (Contrast-Limited Adaptive Histogram Equalization) to
-    normalize uneven lighting across the image.
-
-    Works on the L channel of LAB colour space so hue/saturation are preserved.
-    Falls back to the original image if OpenCV is unavailable.
-    """
     try:
         import cv2
         lab = cv2.cvtColor(img_arr, cv2.COLOR_RGB2LAB)
@@ -130,17 +82,6 @@ def _apply_clahe(img_arr: np.ndarray) -> np.ndarray:
 
 # ── Face alignment via landmarks ──────────────────────────────────────────────
 def _align_face(img_arr: np.ndarray, face_location: tuple) -> np.ndarray | None:
-    """
-    Align a face to a canonical upright pose using eye-center landmarks.
-
-    Steps:
-      1. Detect facial landmarks (68-point model).
-      2. Compute angle between the two eye centres.
-      3. Rotate the image so the eyes are level.
-      4. Crop to the face region with padding.
-
-    Returns the aligned face chip as an RGB numpy array, or None on failure.
-    """
     try:
         landmarks_list = face_recognition.face_landmarks(img_arr, [face_location])
         if not landmarks_list:
@@ -153,20 +94,16 @@ def _align_face(img_arr: np.ndarray, face_location: tuple) -> np.ndarray | None:
         if not left_eye or not right_eye:
             return None
 
-        # Eye centres
         left_center  = np.mean(left_eye,  axis=0)
         right_center = np.mean(right_eye, axis=0)
 
-        # Rotation angle to make eyes level
         dy = right_center[1] - left_center[1]
         dx = right_center[0] - left_center[0]
         angle = math.degrees(math.atan2(dy, dx))
 
-        # Only align if the tilt is significant (> 2°) but not extreme (< 45°)
         if abs(angle) < 2.0 or abs(angle) > 45.0:
             return None
 
-        # Rotate using PIL (high-quality bicubic)
         img_pil = Image.fromarray(img_arr)
         eye_center = (
             (left_center[0] + right_center[0]) / 2,
@@ -185,11 +122,10 @@ def _align_face(img_arr: np.ndarray, face_location: tuple) -> np.ndarray | None:
         return None
 
 
-# ── Reusable HTTP session for connection pooling ──────────────────────────────
+# ── Reusable HTTP session ──────────────────────────────────────────────────────
 _http_session = None
 
 def _get_http_session() -> requests.Session:
-    """Get a reusable requests session with connection pooling."""
     global _http_session
     if _http_session is None:
         _http_session = requests.Session()
@@ -204,7 +140,6 @@ def _get_http_session() -> requests.Session:
 
 # ── Token Auto-Refresher ──────────────────────────────────────────────────────
 def _refresh_access_token(token_state: dict) -> bool:
-    """Refresh the access token using the refresh token."""
     refresh_token = token_state.get("refresh_token")
     if not refresh_token:
         return False
@@ -245,10 +180,6 @@ def _refresh_access_token(token_state: dict) -> bool:
 
 
 def _make_drive_request(url: str, token_state: dict, **kwargs) -> requests.Response:
-    """
-    Make a Drive API request with automatic token refresh, API key fallback,
-    and retry on 429/5xx.
-    """
     session = _get_http_session()
     caller_params = dict(kwargs.pop("params", None) or {})
     max_retries = DRIVE_API_MAX_RETRIES + (1 if GOOGLE_API_KEY else 0)
@@ -264,18 +195,15 @@ def _make_drive_request(url: str, token_state: dict, **kwargs) -> requests.Respo
         try:
             resp = session.get(url, headers=headers, params=params, **kwargs)
 
-            # Token expired → refresh and retry
             if resp.status_code == 401:
                 if not token_state.get("_use_api_key") and _refresh_access_token(token_state):
                     continue
-                # OAuth refresh failed — fall back to API key for public folders
                 if not token_state.get("_use_api_key") and GOOGLE_API_KEY:
                     token_state["_use_api_key"] = True
                     logger.info("🔑 Switching to API key for public folder access")
                     continue
                 resp.raise_for_status()
 
-            # Rate limited or server error → backoff and retry
             if resp.status_code in (429, 500, 502, 503):
                 if attempt < max_retries:
                     backoff = DRIVE_API_BACKOFF * (2 ** (attempt - 1))
@@ -298,7 +226,6 @@ def _make_drive_request(url: str, token_state: dict, **kwargs) -> requests.Respo
 
 # ── Google Drive helpers ──────────────────────────────────────────────────────
 def _folder_id_from_link(drive_link: str) -> str:
-    """Extract folder ID from a Google Drive link."""
     patterns = [
         r"/folders/([a-zA-Z0-9_-]{10,})",
         r"[?&]id=([a-zA-Z0-9_-]{10,})",
@@ -311,7 +238,6 @@ def _folder_id_from_link(drive_link: str) -> str:
 
 
 def _list_drive_files(folder_id: str, token_state: dict) -> Generator[dict, None, None]:
-    """List all image files in a Drive folder (paginated)."""
     params = {
         "q": f"'{folder_id}' in parents and mimeType contains 'image/' and trashed = false",
         "fields": "nextPageToken, files(id, name)",
@@ -334,15 +260,102 @@ def _list_drive_files(folder_id: str, token_state: dict) -> Generator[dict, None
 
 
 def _download_image_bytes(file_id: str, token_state: dict) -> bytes | None:
-    """Download image bytes from Google Drive."""
+    """Download image bytes from Google Drive.
+
+    Tries the official API first.  When that returns 403 (common when using
+    an API key on a public folder), falls back to Google's public export URL
+    which works for any file shared as "Anyone with the link".
+
+    For larger files Google shows a virus-scan confirmation page — this is
+    handled by extracting the confirm token and re-requesting.
+    """
+    session = _get_http_session()
+
+    # ── Attempt 1: Official Drive API ─────────────────────────────────────
     url = DRIVE_DL_URL.format(file_id=file_id)
     try:
         resp = _make_drive_request(url, token_state, timeout=20, stream=True)
-        resp.raise_for_status()
+        if resp.status_code == 200:
+            content_type = resp.headers.get("Content-Type", "")
+            if "text/html" not in content_type:
+                return resp.content
+    except Exception:
+        pass  # fall through to public fallback
+
+    # ── Attempt 2: Public download URL (bypasses API-key 403) ─────────────
+    public_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    try:
+        resp = session.get(public_url, timeout=30, allow_redirects=True)
+        if resp.status_code != 200 or not resp.content:
+            logger.debug("Public URL failed for file_id=%s (status=%s)", file_id, resp.status_code)
+            return None
+
+        content_type = resp.headers.get("Content-Type", "")
+
+        # ── Attempt 3: Virus-scan confirmation flow ────────────────────────
+        # Google returns an HTML warning page (can be 10–50 KB) for files
+        # over ~100 KB.  Extract the confirm token and retry.
+        if "text/html" in content_type:
+            logger.debug("Got HTML virus-scan page for file_id=%s, attempting confirm", file_id)
+            body = resp.text
+            confirm_token = None
+
+            # Pattern 1: hidden input confirm value
+            m = re.search(r'name=["\']confirm["\']\s+value=["\']([^"\']+)["\']', body)
+            if m:
+                confirm_token = m.group(1)
+
+            # Pattern 2: confirm= in URL params
+            if not confirm_token:
+                m = re.search(r'[?&]confirm=([a-zA-Z0-9_\-]+)', body)
+                if m:
+                    confirm_token = m.group(1)
+
+            # Pattern 3: newer "confirm=t" style
+            if not confirm_token and 'confirm=t' in body:
+                confirm_token = "t"
+
+            if confirm_token:
+                confirm_url = (
+                    f"https://drive.google.com/uc?export=download"
+                    f"&id={file_id}&confirm={confirm_token}"
+                )
+                try:
+                    resp2 = session.get(confirm_url, timeout=30, allow_redirects=True)
+                    if resp2.status_code == 200 and resp2.content:
+                        ct2 = resp2.headers.get("Content-Type", "")
+                        if "text/html" not in ct2:
+                            logger.debug("✓ Confirm flow succeeded for file_id=%s", file_id)
+                            return resp2.content
+                except Exception as exc:
+                    logger.debug("Confirm flow request failed for file_id=%s: %s", file_id, exc)
+
+            # ── Attempt 4: drive.usercontent.google.com endpoint ──────────
+            # Newer Google Drive uses this domain for large file downloads
+            alt_url = (
+                f"https://drive.usercontent.google.com/download"
+                f"?id={file_id}&export=download&confirm=t"
+            )
+            try:
+                resp3 = session.get(alt_url, timeout=30, allow_redirects=True)
+                if resp3.status_code == 200 and resp3.content:
+                    ct3 = resp3.headers.get("Content-Type", "")
+                    if "text/html" not in ct3:
+                        logger.debug("✓ usercontent fallback succeeded for file_id=%s", file_id)
+                        return resp3.content
+            except Exception as exc:
+                logger.debug("usercontent fallback failed for file_id=%s: %s", file_id, exc)
+
+            logger.debug("Could not bypass virus-scan page for file_id=%s — skipping", file_id)
+            return None
+
+        # Direct image response — success
         return resp.content
+
     except Exception as exc:
-        logger.warning("Failed to download file_id=%s: %s", file_id, exc)
-        return None
+        logger.debug("Download failed for file_id=%s: %s", file_id, exc)
+
+    return None
 
 
 # ── Face-encoding helpers ─────────────────────────────────────────────────────
@@ -351,28 +364,14 @@ def encode_reference_image(
     num_jitters: int = REF_NUM_JITTERS,
     model: str = "large",
 ) -> list[list[float]]:
-    """
-    Encode a reference image with maximum accuracy.
-
-    Returns multiple encoding variants for each detected face:
-      1. Original image encoding (CLAHE-enhanced)
-      2. Aligned face encoding (if alignment succeeds)
-      3. Horizontally flipped encoding (augmentation)
-
-    Each variant is saved separately so the DB holds a rich reference cluster.
-    """
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    # Resize for quality reference encoding
     if max(img.size) > REF_MAX_SIZE:
         img.thumbnail((REF_MAX_SIZE, REF_MAX_SIZE), Image.Resampling.LANCZOS)
 
     arr = np.array(img)
-
-    # Apply CLAHE for lighting normalisation
     arr_clahe = _apply_clahe(arr)
 
-    # ── Multi-scale face detection cascade ────────────────────────────────
     locations = face_recognition.face_locations(arr_clahe, model="hog")
 
     if not locations:
@@ -386,9 +385,8 @@ def encode_reference_image(
         try:
             locations = face_recognition.face_locations(arr_clahe, model="cnn")
         except Exception:
-            pass  # CNN may not be available on all systems
+            pass
 
-    # Try original (non-CLAHE) as final fallback
     if not locations:
         locations = face_recognition.face_locations(arr, model="hog")
 
@@ -398,7 +396,6 @@ def encode_reference_image(
             "Please upload a clear selfie with your face visible."
         )
 
-    # ── Encode all detected faces with high jitters ───────────────────────
     encodings_clahe = face_recognition.face_encodings(
         arr_clahe,
         known_face_locations=locations,
@@ -412,10 +409,8 @@ def encode_reference_image(
     all_encodings: list[list[float]] = []
 
     for idx, (enc, loc) in enumerate(zip(encodings_clahe, locations)):
-        # Variant 1: CLAHE-enhanced original
         all_encodings.append(enc.tolist())
 
-        # Variant 2: Aligned face (if tilt detected)
         aligned_arr = _align_face(arr_clahe, loc)
         if aligned_arr is not None:
             aligned_locs = face_recognition.face_locations(aligned_arr, model="hog")
@@ -430,7 +425,6 @@ def encode_reference_image(
                     all_encodings.append(aligned_encs[0].tolist())
                     logger.info("  + Aligned variant added for face %d", idx)
 
-        # Variant 3: Horizontally flipped (augmentation)
         flipped_arr = np.fliplr(arr_clahe).copy()
         h, w = flipped_arr.shape[:2]
         top, right, bottom, left = loc
@@ -446,7 +440,7 @@ def encode_reference_image(
                 all_encodings.append(flipped_encs[0].tolist())
                 logger.info("  + Flipped variant added for face %d", idx)
         except Exception:
-            pass  # Flip encoding is best-effort
+            pass
 
     img.close()
 
@@ -458,15 +452,6 @@ def encode_reference_image(
 
 
 def prepare_encodings(known_encodings: list) -> list[np.ndarray]:
-    """
-    Prepare reference encodings for matching using Google Photos-style approach.
-
-    If multiple references exist, keeps ALL individual encodings AND creates
-    an averaged "Master DNA" embedding. This hybrid approach:
-    - Uses individual encodings for precise matching
-    - Uses averaged encoding for noise reduction
-    - Significantly boosts accuracy by reducing false negatives
-    """
     np_encodings = [
         np.array(enc) if not isinstance(enc, np.ndarray) else enc
         for enc in known_encodings
@@ -479,15 +464,11 @@ def prepare_encodings(known_encodings: list) -> list[np.ndarray]:
         logger.info("✓ Using single reference encoding")
         return np_encodings
 
-    # Google Photos approach: Keep individuals + add averaged "master DNA"
     avg_encoding = np.mean(np_encodings, axis=0)
-
-    # Normalize the averaged encoding (important for distance calculations)
     norm = np.linalg.norm(avg_encoding)
     if norm > 0:
         avg_encoding = avg_encoding / norm
 
-    # Return individual encodings + master DNA at the end
     result = np_encodings + [avg_encoding]
 
     logger.info(
@@ -503,22 +484,9 @@ def _ensemble_match(
     known_encodings: list[np.ndarray],
     tolerance: float,
 ) -> tuple[bool, float, str]:
-    """
-    Ensemble face matching combining Euclidean distance and cosine similarity.
-
-    Returns (is_match, best_distance, match_method).
-
-    Match criteria (any one triggers a match):
-      1. Euclidean distance ≤ tolerance  (primary)
-      2. Cosine similarity ≥ COSINE_MATCH_THRESHOLD AND distance ≤ tolerance + 0.05
-      3. Adaptive near-miss: distance within NEAR_MISS_MARGIN of tolerance
-         AND high cosine similarity (≥ COSINE_BOOST_THRESHOLD)
-    """
-    # Method 1: Euclidean distances
     distances = face_recognition.face_distance(known_encodings, candidate)
     min_dist = float(np.min(distances))
 
-    # Method 2: Cosine similarities
     best_cosine = 0.0
     for known_enc in known_encodings:
         dot_product = np.dot(candidate, known_enc)
@@ -527,16 +495,12 @@ def _ensemble_match(
             cosine_sim = dot_product / norm_product
             best_cosine = max(best_cosine, cosine_sim)
 
-    # Decision logic — ensemble voting
-    # Primary: pure Euclidean
     if min_dist <= tolerance:
         return True, min_dist, "euclidean"
 
-    # Secondary: cosine-boosted — high cosine similarity relaxes tolerance slightly
     if best_cosine >= COSINE_MATCH_THRESHOLD and min_dist <= tolerance + 0.05:
         return True, min_dist, "cosine_boost"
 
-    # Tertiary: near-miss with moderate cosine support
     if best_cosine >= COSINE_BOOST_THRESHOLD and min_dist <= tolerance + NEAR_MISS_MARGIN:
         return True, min_dist, "near_miss"
 
@@ -552,31 +516,21 @@ def _process_image_bytes(
     model_type: str,
     upsample: int,
 ) -> tuple[str, bytes | None]:
-    """
-    Process a single image: detect faces, compare with known encodings using
-    CLAHE preprocessing + ensemble matching for high accuracy.
-    Returns (filename, matched_image_bytes_or_None).
-    """
     try:
-        # 1. Load and resize image (larger size for better detection)
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
         if max(img.size) > SCAN_MAX_SIZE:
             img.thumbnail((SCAN_MAX_SIZE, SCAN_MAX_SIZE), Image.Resampling.LANCZOS)
 
         img_arr = np.array(img)
-
-        # 2. Apply CLAHE for lighting normalisation
         img_clahe = _apply_clahe(img_arr)
 
-        # 3. Multi-scale face detection cascade
         locations = face_recognition.face_locations(
             img_clahe,
             number_of_times_to_upsample=upsample,
             model=model_type,
         )
 
-        # Fallback: try original (non-CLAHE) if CLAHE found nothing
         if not locations:
             locations = face_recognition.face_locations(
                 img_arr,
@@ -584,7 +538,6 @@ def _process_image_bytes(
                 model=model_type,
             )
 
-        # Fallback: try with extra upsampling for small/distant faces
         if not locations and model_type == "hog" and upsample < 2:
             locations = face_recognition.face_locations(
                 img_clahe,
@@ -593,22 +546,22 @@ def _process_image_bytes(
             )
 
         if not locations:
+            logger.info("✗ No face detected: %s", filename)
             img.close()
             return filename, None
 
-        # 4. Encode all detected faces with higher quality
         candidate_encodings = face_recognition.face_encodings(
             img_clahe,
             known_face_locations=locations,
-            num_jitters=2,  # More jitters for robust scan encoding
+            num_jitters=2,
             model="large",
         )
 
         if not candidate_encodings:
+            logger.info("✗ Face encoding failed: %s", filename)
             img.close()
             return filename, None
 
-        # 5. Ensemble matching for each candidate face
         found_match = False
         best_distance = float("inf")
         best_method = "none"
@@ -630,7 +583,6 @@ def _process_image_bytes(
                 )
                 break
 
-        # 6. Adaptive multi-reference consistency check for near-misses
         if (
             not found_match
             and best_distance <= tolerance + NEAR_MISS_MARGIN
@@ -641,7 +593,6 @@ def _process_image_bytes(
                     float(face_recognition.face_distance([ke], candidate)[0])
                     for ke in known_encodings
                 ]
-                # Consistent near-match: all references are close
                 if all(d <= tolerance + CONSISTENCY_MARGIN for d in distances):
                     avg_dist = sum(distances) / len(distances)
                     if avg_dist <= tolerance + 0.04:
@@ -652,14 +603,18 @@ def _process_image_bytes(
                         )
                         break
 
-        # Log informative near-misses
-        if not found_match and best_distance < tolerance + 0.15:
-            logger.info(
-                "✗ Near-miss: %s (dist: %.3f, needed: ≤%.3f, best_method: %s)",
-                filename, best_distance, tolerance, best_method,
-            )
+        if not found_match:
+            if best_distance < tolerance + 0.15:
+                logger.info(
+                    "✗ Near-miss: %s (dist: %.3f, needed: ≤%.3f, best_method: %s)",
+                    filename, best_distance, tolerance, best_method,
+                )
+            else:
+                logger.info(
+                    "✗ No match: %s (dist: %.3f, needed: ≤%.3f)",
+                    filename, best_distance, tolerance,
+                )
 
-        # 7. Build result — save to buffer BEFORE closing img
         result_bytes = None
         if found_match:
             buf = io.BytesIO()
@@ -678,18 +633,17 @@ def _process_image_bytes(
 
 
 def _process_drive_file(file_meta, token_state, known_encodings, tolerance, model_type, upsample):
-    """Download and process a single Drive file."""
     img_bytes = _download_image_bytes(file_meta["id"], token_state)
     if not img_bytes:
+        logger.warning("✗ Download failed: %s", file_meta["name"])
         return file_meta["name"], None
     return _process_image_bytes(
         file_meta["name"], img_bytes, known_encodings, tolerance, model_type, upsample
     )
 
 
-# ── ZIP builder (shared) ──────────────────────────────────────────────────────
+# ── ZIP builder ──────────────────────────────────────────────────────────────
 def _build_zip(matched: list[tuple[str, bytes]]) -> bytes:
-    """Build a valid ZIP from matched (filename, bytes) pairs with unique names."""
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
         seen: dict[str, int] = {}
@@ -719,10 +673,8 @@ def run_deep_search(
     upsample: int,
     progress_callback=None,
 ) -> bytes:
-    """Search for matching faces in a Google Drive folder."""
     global MAX_WORKERS
 
-    # Render CPU-only safety fallback
     if IS_RENDER and model_type == "cnn":
         logger.info("Render environment: falling back from CNN to HOG model")
         model_type = "hog"
@@ -733,7 +685,6 @@ def run_deep_search(
         "refresh_token": refresh_token,
     }
 
-    # Pre-detect mock/empty tokens → skip to API key immediately if available
     if (access_token in ("", "mock_drive_token") and
         refresh_token in ("", "mock_refresh_token", None) and
         GOOGLE_API_KEY):
@@ -814,9 +765,6 @@ def run_local_search(
     upsample: int,
     progress_callback=None,
 ) -> bytes:
-    """Search for matching faces in locally uploaded files."""
-
-    # Render CPU-only safety fallback
     if IS_RENDER and model_type == "cnn":
         logger.info("Render environment: falling back from CNN to HOG model")
         model_type = "hog"
