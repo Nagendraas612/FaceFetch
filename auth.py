@@ -19,13 +19,24 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+IS_PRODUCTION = ENVIRONMENT.lower() in ("production", "prod")
+
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
 if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-    raise EnvironmentError(
-        "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env"
-    )
+    if IS_PRODUCTION:
+        raise EnvironmentError(
+            "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in production"
+        )
+    else:
+        logger.warning(
+            "⚠ GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set. "
+            "Google login and Drive scanning will be disabled. Mocking keys for development."
+        )
+        GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID or "mock_client_id"
+        GOOGLE_CLIENT_SECRET = GOOGLE_CLIENT_SECRET or "mock_client_secret"
 
 # ── OAuth client ──────────────────────────────────────────────────────────────
 oauth = OAuth()
@@ -79,6 +90,30 @@ def _build_redirect_uri(request: Request) -> str:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+@router.get("/bypass")
+async def bypass(request: Request):
+    """Bypass login for local dev."""
+    if IS_PRODUCTION:
+        raise HTTPException(403, "Not allowed in production")
+
+    request.session["user"] = {
+        "sub":     "local-dev-user",
+        "email":   "dev@local.host",
+        "name":    "Local Dev User",
+        "picture": "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y",
+    }
+    request.session["drive_token"] = "mock_drive_token"
+
+    import database
+    try:
+        await database.save_refresh_token("local-dev-user", "mock_refresh_token")
+    except Exception as e:
+        logger.warning("Failed to save mock refresh token (expected if mongo is offline): %s", e)
+
+    logger.info("Local development authentication bypass used.")
+    return RedirectResponse(url="/")
+
+
 @router.get("/login")
 async def login(request: Request):
     """Redirect the browser to Google's consent screen."""
@@ -94,7 +129,6 @@ async def callback(request: Request):
         token = await oauth.google.authorize_access_token(request)
     except OAuthError as exc:
         logger.error("OAuth error: %s", exc)
-        # Redirect to home with error instead of raw JSON
         return RedirectResponse(url="/?auth_error=oauth_failed")
 
     user_info = token.get("userinfo") or await oauth.google.userinfo(token=token)
@@ -115,7 +149,7 @@ async def callback(request: Request):
                 {"$set": {"refresh_token": refresh_token}},
                 upsert=True,
             )
-            logger.info("Refresh token saved for user: %s", user_id)
+            logger.info("✓ Refresh token saved for user: %s", user_id)
         except Exception as e:
             logger.error("Failed to save refresh token: %s", e)
 
@@ -126,10 +160,9 @@ async def callback(request: Request):
         "name":    user_info.get("name", ""),
         "picture": user_info.get("picture", ""),
     }
-
     request.session["drive_token"] = token.get("access_token", "")
 
-    logger.info("User authenticated: %s", user_info.get("email", user_id))
+    logger.info("✓ User authenticated: %s", user_info.get("email", user_id))
     return RedirectResponse(url="/")
 
 
@@ -145,5 +178,5 @@ async def me(request: Request):
     """Return current user info or {authenticated: false}."""
     user = get_current_user(request)
     if not user:
-        return JSONResponse({"authenticated": False})
+        return JSONResponse({"authenticated": False, "bypass_enabled": not IS_PRODUCTION})
     return JSONResponse({"authenticated": True, "user": user})
