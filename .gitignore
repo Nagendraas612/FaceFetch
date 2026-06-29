@@ -18,7 +18,9 @@ __pycache__/
 # Build artifacts
 *.zip
 tmp/
+local_data.json
 
 # Mac OS junk files
 .DS_Store
 .vercel
+

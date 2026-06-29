@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy &amp; Biometric Consent | EventAI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:          #030712;
+            --bg-glass:    rgba(10, 15, 30, 0.75);
+            --surface:     rgba(255, 255, 255, 0.03);
+            --border:      rgba(255, 255, 255, 0.08);
+            --border-hi:   rgba(56, 189, 248, 0.3);
+            --accent:      #38bdf8;
+            --accent-grad: linear-gradient(135deg, #38bdf8 0%, #3b82f6 100%);
+            --purple-grad: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+            --green:       #4ade80;
+            --amber:       #fbbf24;
+            --red:         #f87171;
+            --text:        #f8fafc;
+            --muted:       #94a3b8;
+            --font-sans:   'Plus Jakarta Sans', sans-serif;
+            --font-mono:   'JetBrains Mono', monospace;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            line-height: 1.7;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .bg-fx {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
+        }
+        .bg-fx::before {
+            content: '';
+            position: absolute;
+            width: 1000px; height: 1000px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 65%);
+            top: -400px; left: -300px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 4rem auto;
+            padding: 1.5rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .card {
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: 1.25rem;
+            padding: 3rem;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+            position: relative;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+
+        .logo-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: var(--purple-grad);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.15rem;
+            box-shadow: 0 4px 15px rgba(139, 92, 246, 0.25);
+        }
+
+        .logo-text {
+            font-family: var(--font-sans);
+            font-weight: 850;
+            font-size: 1.6rem;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #ffffff 40%, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(to right, #ffffff, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #fff;
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+        }
+
+        p, li {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        ul {
+            padding-left: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        .highlight-box {
+            background: rgba(56, 189, 248, 0.03);
+            border: 1px dashed rgba(56, 189, 248, 0.2);
+            border-radius: 0.75rem;
+            padding: 1.25rem 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .highlight-box p {
+            margin: 0;
+            font-size: 0.9rem;
+            color: var(--accent);
+        }
+
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.03);
+            color: #fff;
+            border: 1px solid var(--border);
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            margin-top: 2rem;
+            transition: all 0.2s;
+        }
+
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: var(--border-hi);
+            transform: translateY(-1px);
+        }
+
+        .mono {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 3rem;
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: rgba(148, 163, 184, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-fx"></div>
+    <div class="container">
+        <div class="card">
+            <div class="logo-section">
+                <div class="logo-icon">⚡</div>
+                <span class="logo-text">FaceFetch</span>
+            </div>
+
+            <h1>Privacy Policy &amp; Biometric Consent</h1>
+            <p class="mono" style="font-size: 0.75rem; color: var(--muted);">Effective Date: June 29, 2026</p>
+
+            <p>At EventAI ("FaceFetch", "we", "us", or "our"), your privacy is our core engineering design priority. This page outlines how we handle your personal information, the Google Drive scopes we use, and your explicit consent regarding biometric data under the Illinois Biometric Information Privacy Act (BIPA), the General Data Protection Regulation (GDPR), and other global privacy frameworks.</p>
+
+            <h2>1. Biometric Information Privacy Policy (Consent)</h2>
+            <div class="highlight-box">
+                <p><strong>⚠️ CRITICAL CONSENT NOTICE:</strong> By uploading reference selfies to create your "Face DNA," you are providing explicit, written consent for FaceFetch to collect, generate, analyze, and process biometric identifiers and information derived from your facial characteristics.</p>
+            </div>
+            <p>Our system uses machine learning algorithms (specifically dlib's facial recognition model) to analyze the facial geometries of the selfies you upload. Here is how that data is managed:</p>
+            <ul>
+                <li><strong>Purpose:</strong> We use facial geometric analysis solely to construct a 128-point face embedding matrix ("Face DNA") representing your face. This embedding is used exclusively to find matching photos within user-designated albums.</li>
+                <li><strong>Storage:</strong> We store only the 128-point numeric vector. The raw reference selfies are analyzed transiently and are not permanently archived on our servers beyond what is required to extract the encoding.</li>
+                <li><strong>Retention &amp; Deletion:</strong> You have absolute control. You can delete all your stored face encodings at any time using the "Delete all saved encodings" button or delete specific ones in your profile panel. All biometric database records for your user profile are automatically deleted within 30 days of last user activity, or immediately upon user request.</li>
+            </ul>
+
+            <h2>2. Google User Data Policy</h2>
+            <p>FaceFetch connects with Google OAuth to authenticate you and scan your designated Google Drive folders. Here is what we access:</p>
+            <ul>
+                <li><strong>Email &amp; Profile Info:</strong> Used to create and secure your user account, authorize scans, and manage your custom Face DNA records.</li>
+                <li><strong>Google Drive Read Scope (<span class="mono">drive.readonly</span>):</strong> We request read-only access to files in the Google Drive folder you provide. This is used solely to read and scan image pixels for face-matching. We never modify, write, delete, or share any files in your Google Drive.</li>
+                <li><strong>Data Transmission:</strong> The scanning process pulls temporary image bytes into server memory, runs the face detection process in memory, and puts matching images into a temporary ZIP bundle. The scanned data is processed in-memory and never cached permanently on disk.</li>
+            </ul>
+
+            <h2>3. Security &amp; Protection</h2>
+            <p>We deploy standard security measures to protect your account and facial data:</p>
+            <ul>
+                <li>Session cookies are protected with high-security flags (HTTPS-only, SameSite=Lax, Secure).</li>
+                <li>Anti-CSRF protections, strict Content Security Policies (CSP), rate limiting, and ZIP bomb limits are implemented.</li>
+                <li>Authorization boundaries ensure your generated ZIP archives can only be downloaded by your authenticated Google account.</li>
+            </ul>
+
+            <a href="/" class="btn-back">← RETURN TO EVENTAI</a>
+        </div>
+
+        <footer>
+            © 2026 EVENTAI · POWERED BY ADVANCED ML · SECURE &amp; COMPLIANT
+        </footer>
+    </div>
+</body>
+</html>

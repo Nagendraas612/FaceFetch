@@ -136,9 +136,14 @@ async def ping_with_retry() -> bool:
 
 # ── Face-encoding & User Management ──────────────────────────────────────────
 
-async def save_face_encoding(user_id: str, filename: str, encoding: list) -> str:
+async def save_face_encoding(
+    user_id: str,
+    filename: str,
+    encoding: list,
+    profile_name: str = "default",
+) -> str:
     """
-    Pushes a new encoding into the user's 'references' array.
+    Pushes a new encoding into the user's 'references' array with a profile name.
     Falls back to local JSON file if MongoDB is unavailable.
     """
     if _is_mongo_up():
@@ -149,13 +154,14 @@ async def save_face_encoding(user_id: str, filename: str, encoding: list) -> str
                 "ref_id": ref_id,
                 "filename": filename,
                 "encoding": [float(x) for x in encoding],
+                "profile_name": profile_name,
             }
             await db[USER_COLLECTION].update_one(
                 {"user_id": user_id},
                 {"$push": {"references": new_reference}},
                 upsert=True,
             )
-            logger.info("✓ Saved face reference for user %s (filename: %s)", user_id, filename)
+            logger.info("✓ Saved face reference for user %s, profile %s (filename: %s)", user_id, profile_name, filename)
             return str(ref_id)
         except Exception as e:
             logger.warning("MongoDB save failed, falling back to local storage: %s", e)
@@ -168,15 +174,16 @@ async def save_face_encoding(user_id: str, filename: str, encoding: list) -> str
         "ref_id": ref_id,
         "filename": filename,
         "encoding": [float(x) for x in encoding],
+        "profile_name": profile_name,
     })
     _save_local_data(data)
-    logger.info("✓ Saved face reference locally for user %s (filename: %s)", user_id, filename)
+    logger.info("✓ Saved face reference locally for user %s, profile %s (filename: %s)", user_id, profile_name, filename)
     return ref_id
 
 
-async def load_face_encodings(user_id: str) -> list:
+async def load_face_encodings(user_id: str, profile_name: str = "default") -> list:
     """
-    Retrieves all face encodings for a user.
+    Retrieves all face encodings for a user filtered by profile name.
     Checks both MongoDB and local file, prioritizing whichever has data.
     """
     encodings = []
@@ -190,38 +197,48 @@ async def load_face_encodings(user_id: str) -> list:
                 encodings = [
                     ref["encoding"]
                     for ref in user_profile["references"]
-                    if "encoding" in ref
+                    if "encoding" in ref and ref.get("profile_name", "default") == profile_name
                 ]
                 if encodings:
-                    logger.info("✓ Loaded %d encoding(s) from MongoDB for user %s", len(encodings), user_id)
+                    logger.info("✓ Loaded %d encoding(s) from MongoDB for user %s (profile: %s)", len(encodings), user_id, profile_name)
                     return encodings
                 else:
-                    logger.warning("MongoDB profile found but no encodings for user %s", user_id)
+                    logger.warning("MongoDB profile found but no encodings for user %s (profile: %s)", user_id, profile_name)
             else:
                 logger.warning("No MongoDB profile found for user %s, trying local file", user_id)
         except Exception as e:
             logger.error("MongoDB load failed: %s", e)
 
     # Fall back to local file
-    logger.info("Loading from local_data.json for user %s", user_id)
+    logger.info("Loading from local_data.json for user %s (profile: %s)", user_id, profile_name)
     data = _load_local_data()
     user_data = data.get(user_id, {})
     encodings = [
         ref["encoding"]
         for ref in user_data.get("references", [])
-        if "encoding" in ref
+        if "encoding" in ref and ref.get("profile_name", "default") == profile_name
     ]
-    logger.info("✓ Loaded %d encoding(s) from local file for user %s", len(encodings), user_id)
+    logger.info("✓ Loaded %d encoding(s) from local file for user %s (profile: %s)", len(encodings), user_id, profile_name)
     return encodings
 
 
-async def get_encoding_count(user_id: str) -> int:
-    """Get the number of saved face encodings without loading them all."""
+
+async def get_encoding_count(user_id: str, profile_name: str = "default") -> int:
+    """Get the number of saved face encodings for a profile without loading them all."""
     if _is_mongo_up():
         try:
             db = get_db()
             result = await db[USER_COLLECTION].aggregate([
                 {"$match": {"user_id": user_id}},
+                {"$project": {
+                    "references": {
+                        "$filter": {
+                            "input": "$references",
+                            "as": "ref",
+                            "cond": {"$eq": [{"$ifNull": ["$$ref.profile_name", "default"]}, profile_name]}
+                        }
+                    }
+                }},
                 {"$project": {"count": {"$size": {"$ifNull": ["$references", []]}}}}
             ]).to_list(1)
             if result:
@@ -232,12 +249,14 @@ async def get_encoding_count(user_id: str) -> int:
 
     # ── Local fallback ────────────────────────────────────────────────────────
     data = _load_local_data()
-    return len(data.get(user_id, {}).get("references", []))
+    refs = data.get(user_id, {}).get("references", [])
+    filtered_refs = [r for r in refs if r.get("profile_name", "default") == profile_name]
+    return len(filtered_refs)
 
 
-async def get_all_references(user_id: str) -> list:
+async def get_all_references(user_id: str, profile_name: str = "default") -> list:
     """
-    Get all references for a user (without the encoding data, for listing).
+    Get all references for a user filtered by profile name (without encoding data).
     Falls back to local JSON file if MongoDB is unavailable.
     """
     if _is_mongo_up():
@@ -252,16 +271,20 @@ async def get_all_references(user_id: str) -> list:
             return [
                 {"ref_id": str(ref["ref_id"]), "filename": ref["filename"]}
                 for ref in user_profile["references"]
+                if ref.get("profile_name", "default") == profile_name
             ]
         except Exception as e:
             logger.warning("MongoDB get_all_refs failed, falling back to local storage: %s", e)
 
     # ── Local fallback ────────────────────────────────────────────────────────
     data = _load_local_data()
+    refs = data.get(user_id, {}).get("references", [])
     return [
         {"ref_id": ref["ref_id"], "filename": ref["filename"]}
-        for ref in data.get(user_id, {}).get("references", [])
+        for ref in refs
+        if ref.get("profile_name", "default") == profile_name
     ]
+
 
 
 async def delete_specific_reference(user_id: str, ref_id: str) -> bool:
@@ -353,3 +376,52 @@ async def get_refresh_token(user_id: str) -> Optional[str]:
     # ── Local fallback ────────────────────────────────────────────────────────
     data = _load_local_data()
     return data.get(user_id, {}).get("refresh_token")
+
+
+# ── Face Encodings Cache ──────────────────────────────────────────────────────
+CACHE_COLLECTION = "scanned_cache"
+
+async def get_cached_encodings(file_id: str, modified_time: str) -> Optional[list]:
+    """Retrieve cached face encodings for a file if modified_time matches."""
+    if _is_mongo_up():
+        try:
+            db = get_db()
+            cached = await db[CACHE_COLLECTION].find_one({"file_id": file_id, "modified_time": modified_time})
+            if cached:
+                return cached.get("encodings")
+            return None
+        except Exception as e:
+            logger.warning("MongoDB get_cached_encodings failed, falling back to local: %s", e)
+
+    # Local fallback
+    data = _load_local_data()
+    cache_store = data.get("scanned_cache", {})
+    entry = cache_store.get(file_id)
+    if entry and entry.get("modified_time") == modified_time:
+        return entry.get("encodings")
+    return None
+
+
+async def save_cached_encodings(file_id: str, modified_time: str, encodings: list):
+    """Save face encodings for a file to the cache."""
+    if _is_mongo_up():
+        try:
+            db = get_db()
+            await db[CACHE_COLLECTION].update_one(
+                {"file_id": file_id},
+                {"$set": {"modified_time": modified_time, "encodings": encodings}},
+                upsert=True,
+            )
+            return
+        except Exception as e:
+            logger.warning("MongoDB save_cached_encodings failed, falling back to local: %s", e)
+
+    # Local fallback
+    data = _load_local_data()
+    cache_store = data.setdefault("scanned_cache", {})
+    cache_store[file_id] = {
+        "modified_time": modified_time,
+        "encodings": encodings
+    }
+    _save_local_data(data)
+

@@ -178,5 +178,25 @@ async def me(request: Request):
     """Return current user info or {authenticated: false}."""
     user = get_current_user(request)
     if not user:
-        return JSONResponse({"authenticated": False, "bypass_enabled": not IS_PRODUCTION})
-    return JSONResponse({"authenticated": True, "user": user})
+        return JSONResponse({
+            "authenticated": False,
+            "bypass_enabled": not IS_PRODUCTION,
+            "google_client_id": GOOGLE_CLIENT_ID
+        })
+    return JSONResponse({
+        "authenticated": True,
+        "user": user,
+        "google_client_id": GOOGLE_CLIENT_ID
+    })
+
+
+@router.get("/token")
+async def token(request: Request):
+    """Return active Google Drive access token and API Key for Google Picker API."""
+    require_user(request)
+    return JSONResponse({
+        "token": request.session.get("drive_token", ""),
+        "api_key": os.getenv("GOOGLE_API_KEY", "")
+    })
+
+

@@ -4,6 +4,7 @@ FaceFetch – FastAPI entry point.
 
 Endpoints:
   GET  /                         → Serve index.html
+  GET  /privacy                  → Serve privacy.html (Privacy Policy & Biometric Consent)
   GET  /health                   → DB + app health
   GET  /auth/login               → Start Google OAuth
   GET  /auth/callback            → OAuth callback
@@ -50,6 +51,8 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 import auth
@@ -92,6 +95,8 @@ BASE_DIR = Path(__file__).parent
 # ── Constants ─────────────────────────────────────────────────────────────────
 MAX_UPLOAD_SIZE             = 10 * 1024 * 1024   # 10 MB
 MAX_LOCAL_FILES             = 2000
+MAX_ZIP_SIZE                = 500 * 1024 * 1024  # 500 MB (ZIP bomb protection)
+MAX_FILENAME_LENGTH         = 255
 ALLOWED_MIME_PREFIXES       = (
     "image/jpeg", "image/png", "image/webp",
     "image/bmp", "image/tiff", "image/heic",
@@ -100,16 +105,21 @@ ZIP_TTL_SECONDS             = 1800               # 30 minutes
 ZIP_MAX_STORE_MB            = 500
 RATE_LIMIT_UPLOADS_PER_MIN  = 20
 RATE_LIMIT_SCANS_PER_HOUR   = 100
+RATE_LIMIT_DOWNLOADS_PER_HOUR = 50
 
-# Tolerance bounds — widened upper bound to 0.70 so power users can
-# intentionally trade precision for recall (e.g. very diverse photo sets).
+# Tolerance bounds
 TOLERANCE_MIN = 0.35
 TOLERANCE_MAX = 0.70
 
+# Security: Allowed origins (configure per deployment)
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
 # ── In-memory stores ─────────────────────────────────────────────────────────
-_zip_store:    dict[str, dict]          = {}
-_upload_rate:  dict[str, list[float]]   = defaultdict(list)
-_scan_rate:    dict[str, list[float]]   = defaultdict(list)
+_zip_store:        dict[str, dict]          = {}
+_upload_rate:      dict[str, list[float]]   = defaultdict(list)
+_scan_rate:        dict[str, list[float]]   = defaultdict(list)
+_download_rate:    dict[str, list[float]]   = defaultdict(list)
+_user_zip_access:  dict[str, str]           = {}  # search_id -> user_id mapping
 
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
@@ -140,12 +150,27 @@ def _cleanup_zip_store():
     ]
     for sid in expired:
         del _zip_store[sid]
+        # Clean up access mapping
+        if sid in _user_zip_access:
+            del _user_zip_access[sid]
     if expired:
         logger.info("🗑 Cleaned up %d expired ZIP(s)", len(expired))
 
 
 def _zip_store_size_mb() -> float:
     return sum(len(e["data"]) for e in _zip_store.values()) / (1024 * 1024)
+
+
+def _extract_images_from_zip(zip_bytes: bytes) -> dict[str, bytes]:
+    images = {}
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            for name in zf.namelist():
+                images[name] = zf.read(name)
+    except Exception as e:
+        logger.error("Error extracting images from ZIP: %s", e)
+    return images
+
 
 
 async def _periodic_cleanup():
@@ -173,8 +198,32 @@ async def lifespan(app: FastAPI):
     logger.info("MongoDB client closed")
 
 
-app = FastAPI(title="FaceFetch", version="2.2.0", lifespan=lifespan)
+app = FastAPI(
+    title="FaceFetch",
+    version="2.3.0",
+    lifespan=lifespan,
+    docs_url=None if IS_PRODUCTION else "/docs",  # Disable docs in production
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+)
 
+# ── Security Middleware ───────────────────────────────────────────────────────
+# CORS protection
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["*"],
+    max_age=3600,
+)
+
+# Trusted host protection (prevent host header injection)
+if IS_PRODUCTION:
+    trusted_hosts = os.getenv("TRUSTED_HOSTS", "").split(",")
+    if trusted_hosts and trusted_hosts[0]:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
+
+# Session middleware
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
@@ -183,6 +232,28 @@ app.add_middleware(
     same_site="lax",
     https_only=IS_PRODUCTION,
 )
+
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if IS_PRODUCTION:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://fonts.googleapis.com https://apis.google.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://content.googleapis.com; "
+            "frame-src 'self' https://docs.google.com https://accounts.google.com; "
+            "frame-ancestors 'none'"
+        )
+    return response
 
 app.include_router(auth.router)
 
@@ -195,6 +266,16 @@ async def index(request: Request):
     except Exception as e:
         logger.error("Error loading index.html: %s", e)
         raise HTTPException(status_code=500, detail="index.html missing")
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy(request: Request):
+    try:
+        return HTMLResponse((BASE_DIR / "privacy.html").read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.error("Error loading privacy.html: %s", e)
+        raise HTTPException(status_code=500, detail="privacy.html missing")
+
 
 
 @app.get("/health")
@@ -212,16 +293,24 @@ async def health():
 # ── Reference face upload ─────────────────────────────────────────────────────
 @app.post("/upload-reference")
 async def upload_reference(
-    request:     Request,
-    file:        UploadFile = File(...),
-    num_jitters: int        = Form(5),    # default increased to match REF_NUM_JITTERS
-    model:       str        = Form("large"),
+    request:      Request,
+    file:         UploadFile = File(...),
+    num_jitters:  int        = Form(5),
+    model:        str        = Form("large"),
+    profile_name: str        = Form("default"),
 ):
     user    = auth.require_user(request)
     user_id = user["sub"]
 
     _check_rate_limit(_upload_rate, user_id, RATE_LIMIT_UPLOADS_PER_MIN, 60)
 
+    # Validate filename
+    if not file.filename:
+        raise HTTPException(400, "Filename is required")
+    
+    safe_filename = _sanitize_filename(file.filename)
+
+    # Validate content type
     content_type = file.content_type or ""
     if not any(content_type.startswith(p) for p in ALLOWED_MIME_PREFIXES):
         raise HTTPException(
@@ -229,6 +318,7 @@ async def upload_reference(
             f"Unsupported file type: {content_type}. Upload JPG, PNG, or WebP images.",
         )
 
+    # Read and validate size
     image_bytes = await file.read()
     if len(image_bytes) > MAX_UPLOAD_SIZE:
         raise HTTPException(
@@ -239,14 +329,23 @@ async def upload_reference(
     if len(image_bytes) == 0:
         raise HTTPException(400, "Empty file uploaded.")
 
+    # Validate parameters
     if model not in ("small", "large"):
-        model = "large"
+        raise HTTPException(400, "Invalid model parameter")
+    if not isinstance(num_jitters, int) or num_jitters < 1 or num_jitters > 10:
+        raise HTTPException(400, "num_jitters must be between 1 and 10")
+    
     num_jitters = max(1, min(num_jitters, 10))
 
+    # Check user hasn't exceeded reasonable encoding count per profile (prevent abuse)
+    current_count = await database.get_encoding_count(user_id, profile_name)
+    if current_count >= 50:  # Reasonable limit
+        raise HTTPException(
+            429,
+            f"Maximum reference photos limit reached (50) for profile '{profile_name}'. Delete some before uploading more."
+        )
+
     try:
-        # encode_reference_image now returns ALL encodings
-        # (original + aligned + flipped) — save each one individually so the
-        # database holds the full reference cluster for this photo.
         all_encodings = engine.encode_reference_image(
             image_bytes, num_jitters=num_jitters, model=model
         )
@@ -255,16 +354,16 @@ async def upload_reference(
                 400, "No face detected in this photo. Please upload a clear selfie."
             )
 
-        # Save every encoding variant; the DB de-duplicates by ref_id per photo.
         for enc in all_encodings:
-            await database.save_face_encoding(user_id, file.filename, enc)
+            await database.save_face_encoding(user_id, safe_filename, enc, profile_name)
 
-        total = await database.get_encoding_count(user_id)
+        total = await database.get_encoding_count(user_id, profile_name)
         return {
             "status":        "success",
             "total_saved":   total,
             "variants_from_this_photo": len(all_encodings),
         }
+
 
     except HTTPException:
         raise
@@ -276,9 +375,9 @@ async def upload_reference(
 
 
 @app.get("/my-encodings")
-async def my_encodings(request: Request):
+async def my_encodings(request: Request, profile_name: str = "default"):
     user = auth.require_user(request)
-    refs = await database.get_all_references(user["sub"])
+    refs = await database.get_all_references(user["sub"], profile_name)
     return {
         "count":      len(refs),
         "references": [
@@ -286,6 +385,7 @@ async def my_encodings(request: Request):
             for r in refs
         ],
     }
+
 
 
 @app.delete("/my-encodings")
@@ -310,20 +410,61 @@ async def delete_ref_endpoint(ref_id: str, request: Request):
     return {"success": True}
 
 
-# ── Input validation ──────────────────────────────────────────────────────────
+# ── Input validation & sanitization ──────────────────────────────────────────
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal and other attacks."""
+    if not filename:
+        return "unnamed"
+    
+    # Remove path components
+    filename = os.path.basename(filename)
+    
+    # Remove dangerous characters
+    filename = re.sub(r'[^\w\s\-\.]', '_', filename)
+    
+    # Limit length
+    if len(filename) > MAX_FILENAME_LENGTH:
+        name, ext = os.path.splitext(filename)
+        filename = name[:MAX_FILENAME_LENGTH - len(ext)] + ext
+    
+    return filename or "unnamed"
+
+
 def _validate_scan_params(tolerance: float, model: str, upsample: int):
-    tolerance = max(TOLERANCE_MIN, min(TOLERANCE_MAX, tolerance))
+    """Validate and sanitize scan parameters."""
+    # Validate tolerance (prevent algorithm abuse)
+    if not isinstance(tolerance, (int, float)):
+        raise HTTPException(400, "Invalid tolerance type")
+    tolerance = max(TOLERANCE_MIN, min(TOLERANCE_MAX, float(tolerance)))
+    
+    # Validate model
     if model not in ("hog", "cnn"):
-        model = "hog"
-    upsample = max(0, min(2, upsample))
+        raise HTTPException(400, "Invalid model type")
+    
+    # Validate upsample (prevent resource exhaustion)
+    if not isinstance(upsample, int):
+        raise HTTPException(400, "Invalid upsample type")
+    upsample = max(0, min(2, int(upsample)))
+    
     return tolerance, model, upsample
 
 
 def _validate_drive_link(drive_link: str):
-    if not drive_link:
+    """Validate Google Drive link to prevent injection attacks."""
+    if not drive_link or not isinstance(drive_link, str):
         raise HTTPException(400, "Drive link is required.")
+    
+    # Limit length (prevent DoS)
+    if len(drive_link) > 500:
+        raise HTTPException(400, "Drive link too long.")
+    
+    # Validate format
     if not re.search(r"drive\.google\.com", drive_link):
         raise HTTPException(400, "Invalid Google Drive link.")
+    
+    # Prevent injection attempts
+    if any(char in drive_link for char in ["<", ">", "\"", "'", ";", "(", ")", "{"]):
+        raise HTTPException(400, "Invalid characters in Drive link.")
 
 
 # ── SSE helper ────────────────────────────────────────────────────────────────
@@ -334,11 +475,12 @@ def _sse(payload: dict) -> str:
 # ── Deep search (SSE streaming) ───────────────────────────────────────────────
 @app.post("/search")
 async def search(
-    request:    Request,
-    drive_link: str   = Form(...),
-    tolerance:  float = Form(0.50),   # raised slightly — CLAHE + alignment recover precision
-    model:      str   = Form("hog"),
-    upsample:   int   = Form(1),
+    request:      Request,
+    drive_link:   str   = Form(...),
+    tolerance:    float = Form(0.50),
+    model:        str   = Form("hog"),
+    upsample:     int   = Form(1),
+    profile_name: str   = Form("default"),
 ):
     user    = auth.require_user(request)
     user_id = user["sub"]
@@ -362,9 +504,9 @@ async def search(
             "or add GOOGLE_API_KEY to .env for public folders.",
         )
 
-    known_encodings = await database.load_face_encodings(user_id)
+    known_encodings = await database.load_face_encodings(user_id, profile_name)
     if not known_encodings:
-        raise HTTPException(400, "No reference face found. Upload a reference photo first.")
+        raise HTTPException(400, f"No reference face found for profile '{profile_name}'. Upload a selfie first.")
 
     async def event_stream() -> AsyncGenerator[str, None]:
         search_id      = str(uuid.uuid4())
@@ -379,13 +521,25 @@ async def search(
                  "filename": filename, "matched": matched_count},
             )
 
+        def sync_get_cache(file_id: str, modified_time: str):
+            coro = database.get_cached_encodings(file_id, modified_time)
+            fut = asyncio.run_coroutine_threadsafe(coro, loop)
+            return fut.result()
+
+        def sync_save_cache(file_id: str, modified_time: str, encs: list):
+            coro = database.save_cached_encodings(file_id, modified_time, encs)
+            fut = asyncio.run_coroutine_threadsafe(coro, loop)
+            return fut.result()
+
         future = loop.run_in_executor(
             None,
             lambda: engine.run_deep_search(
                 drive_link, drv_token, refresh_token,
                 known_encodings, tolerance, model, upsample, progress_cb,
+                sync_get_cache, sync_save_cache
             ),
         )
+
 
         while not future.done():
             try:
@@ -423,17 +577,25 @@ async def search(
                     ),
                 })
             else:
-                _zip_store[search_id] = {"data": zip_bytes, "created_at": time.time()}
+                _zip_store[search_id] = {
+                    "data": zip_bytes,
+                    "images": _extract_images_from_zip(zip_bytes),
+                    "created_at": time.time()
+                }
+                _user_zip_access[search_id] = user_id  # Track ownership for authorization
                 logger.info(
-                    "✓ ZIP stored: id=%s, size=%d bytes, files=%d",
-                    search_id, len(zip_bytes), matched,
+                    "✓ ZIP stored: id=%s, size=%d bytes, files=%d, user=%s",
+                    search_id, len(zip_bytes), matched, user_id,
                 )
+                filenames = list(_zip_store[search_id]["images"].keys())
                 yield _sse({
                     "type":      "done",
                     "search_id": search_id,
                     "matched":   matched,
                     "duration":  scan_duration,
+                    "filenames": filenames,
                 })
+
         except Exception as exc:
             logger.error("Search failed: %s", exc)
             yield _sse({"type": "error", "message": str(exc)})
@@ -448,11 +610,12 @@ async def search(
 # ── Local files search (SSE streaming) ───────────────────────────────────────
 @app.post("/search-local")
 async def search_local(
-    request:   Request,
-    files:     list[UploadFile] = File(...),
-    tolerance: float            = Form(0.50),
-    model:     str              = Form("hog"),
-    upsample:  int              = Form(1),
+    request:      Request,
+    files:        list[UploadFile] = File(...),
+    tolerance:    float            = Form(0.50),
+    model:        str              = Form("hog"),
+    upsample:     int              = Form(1),
+    profile_name: str              = Form("default"),
 ):
     user    = auth.require_user(request)
     user_id = user["sub"]
@@ -468,9 +631,10 @@ async def search_local(
     if _zip_store_size_mb() > ZIP_MAX_STORE_MB:
         raise HTTPException(503, "Server is busy. Please try again in a few minutes.")
 
-    known_encodings = await database.load_face_encodings(user_id)
+    known_encodings = await database.load_face_encodings(user_id, profile_name)
     if not known_encodings:
-        raise HTTPException(400, "No reference face found. Upload a reference photo first.")
+        raise HTTPException(400, f"No reference face found for profile '{profile_name}'. Upload a selfie first.")
+
 
     file_data_list = []
     for f in files:
@@ -537,17 +701,25 @@ async def search_local(
                     ),
                 })
             else:
-                _zip_store[search_id] = {"data": zip_bytes, "created_at": time.time()}
+                _zip_store[search_id] = {
+                    "data": zip_bytes,
+                    "images": _extract_images_from_zip(zip_bytes),
+                    "created_at": time.time()
+                }
+                _user_zip_access[search_id] = user_id  # Track ownership for authorization
                 logger.info(
-                    "✓ ZIP stored: id=%s, size=%d bytes, files=%d",
-                    search_id, len(zip_bytes), matched,
+                    "✓ ZIP stored: id=%s, size=%d bytes, files=%d, user=%s",
+                    search_id, len(zip_bytes), matched, user_id,
                 )
+                filenames = list(_zip_store[search_id]["images"].keys())
                 yield _sse({
                     "type":      "done",
                     "search_id": search_id,
                     "matched":   matched,
                     "duration":  scan_duration,
+                    "filenames": filenames,
                 })
+
         except Exception as exc:
             logger.error("Search local failed: %s", exc)
             yield _sse({"type": "error", "message": str(exc)})
@@ -562,13 +734,20 @@ async def search_local(
 # ── ZIP download ──────────────────────────────────────────────────────────────
 @app.get("/download/{search_id}")
 async def download_zip(search_id: str, request: Request):
-    auth.require_user(request)
+    """Download matched photos ZIP with security checks."""
+    user = auth.require_user(request)
+    user_id = user["sub"]
+    
+    # Rate limiting for downloads
+    _check_rate_limit(_download_rate, user_id, RATE_LIMIT_DOWNLOADS_PER_HOUR, 3600)
 
+    # Validate search_id format (prevent injection)
     try:
         uuid.UUID(search_id)
     except ValueError:
-        raise HTTPException(400, "Invalid search ID.")
+        raise HTTPException(400, "Invalid search ID format.")
 
+    # Check if ZIP exists
     entry = _zip_store.get(search_id)
     if not entry:
         raise HTTPException(
@@ -576,18 +755,120 @@ async def download_zip(search_id: str, request: Request):
             "ZIP not found or expired. Results are kept for 30 minutes after scanning.",
         )
 
+    # Authorization check: verify user owns this search result
+    if search_id in _user_zip_access:
+        if _user_zip_access[search_id] != user_id:
+            logger.warning(
+                "⚠️ Unauthorized ZIP access attempt: user %s tried to access %s (owned by %s)",
+                user_id, search_id, _user_zip_access[search_id]
+            )
+            raise HTTPException(403, "Access denied. This search belongs to another user.")
+
     zip_data = entry["data"]
+    
+    # ZIP bomb protection: check uncompressed size
+    if len(zip_data) > MAX_ZIP_SIZE:
+        logger.error("🚨 Potential ZIP bomb detected: %d bytes", len(zip_data))
+        raise HTTPException(413, "ZIP file too large. This might indicate a problem.")
+    
     filename = f"facefetch_matches_{search_id[:8]}.zip"
+    # Sanitize filename for download
+    safe_filename = _sanitize_filename(filename)
 
     return Response(
         content=zip_data,
         status_code=200,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
             "Content-Length":      str(len(zip_data)),
             "Content-Type":        "application/octet-stream",
-            "Cache-Control":       "no-store",
+            "Cache-Control":       "no-store, no-cache, must-revalidate, private",
+            "Pragma":              "no-cache",
+            "Expires":             "0",
+        },
+    )
+
+
+# ── Matched results serving ───────────────────────────────────────────────────
+@app.get("/result-image/{search_id}/{filename}")
+async def get_result_image(search_id: str, filename: str, request: Request):
+    """Serve a specific matched photo from the search run."""
+    user = auth.require_user(request)
+    user_id = user["sub"]
+
+    try:
+        uuid.UUID(search_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid search ID format.")
+
+    if search_id in _user_zip_access:
+        if _user_zip_access[search_id] != user_id:
+            raise HTTPException(403, "Access denied.")
+
+    entry = _zip_store.get(search_id)
+    if not entry or "images" not in entry:
+        raise HTTPException(404, "Search results expired or not found.")
+
+    img_bytes = entry["images"].get(filename)
+    if not img_bytes:
+        raise HTTPException(404, "Image not found in results.")
+
+    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    media_type = "image/jpeg"
+    if ext == ".png":
+        media_type = "image/png"
+    elif ext == ".webp":
+        media_type = "image/webp"
+
+    return Response(content=img_bytes, media_type=media_type)
+
+
+@app.post("/download-selected/{search_id}")
+async def download_selected(search_id: str, request: Request, payload: dict = None):
+    """Download a subset of matched photos as a ZIP."""
+    user = auth.require_user(request)
+    user_id = user["sub"]
+
+    try:
+        uuid.UUID(search_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid search ID format.")
+
+    if search_id in _user_zip_access:
+        if _user_zip_access[search_id] != user_id:
+            raise HTTPException(403, "Access denied.")
+
+    entry = _zip_store.get(search_id)
+    if not entry or "images" not in entry:
+        raise HTTPException(404, "Search results expired or not found.")
+
+    filenames = (payload or {}).get("filenames", [])
+    if not filenames:
+        raise HTTPException(400, "No filenames provided.")
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        for name in filenames:
+            img_bytes = entry["images"].get(name)
+            if img_bytes:
+                zf.writestr(name, img_bytes)
+                
+    zip_buf.seek(0)
+    custom_zip_data = zip_buf.read()
+
+    filename = f"facefetch_selected_{search_id[:8]}.zip"
+    safe_filename = _sanitize_filename(filename)
+
+    return Response(
+        content=custom_zip_data,
+        status_code=200,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+            "Content-Length":      str(len(custom_zip_data)),
+            "Content-Type":        "application/octet-stream",
+            "Cache-Control":       "no-store, no-cache, must-revalidate, private",
         },
     )
 

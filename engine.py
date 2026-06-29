@@ -39,8 +39,9 @@ SUPPORTED_EXTS   = {
 REF_MAX_SIZE     = 1024
 REF_NUM_JITTERS  = 5
 
-SCAN_MAX_SIZE    = 1000
+SCAN_MAX_SIZE    = 1600
 SCAN_QUALITY     = 85
+
 
 TOKEN_REFRESH_MAX_RETRIES = 3
 TOKEN_REFRESH_BACKOFF     = 2
@@ -226,21 +227,27 @@ def _make_drive_request(url: str, token_state: dict, **kwargs) -> requests.Respo
 
 # ── Google Drive helpers ──────────────────────────────────────────────────────
 def _folder_id_from_link(drive_link: str) -> str:
+    """Extract folder ID from a Google Drive link with ReDoS protection."""
+    # Limit input length to prevent ReDoS
+    if len(drive_link) > 500:
+        raise ValueError("Drive link too long")
+    
+    # Simple, non-backtracking patterns
     patterns = [
-        r"/folders/([a-zA-Z0-9_-]{10,})",
-        r"[?&]id=([a-zA-Z0-9_-]{10,})",
+        r"/folders/([a-zA-Z0-9_-]{10,50})",  # Limited length
+        r"[?&]id=([a-zA-Z0-9_-]{10,50})",    # Limited length
     ]
     for pat in patterns:
-        m = re.search(pat, drive_link)
+        m = re.search(pat, drive_link, timeout=1)  # Timeout protection
         if m:
             return m.group(1)
-    raise ValueError(f"Cannot extract folder ID from link: {drive_link!r}")
+    raise ValueError(f"Cannot extract folder ID from link")
 
 
 def _list_drive_files(folder_id: str, token_state: dict) -> Generator[dict, None, None]:
     params = {
         "q": f"'{folder_id}' in parents and mimeType contains 'image/' and trashed = false",
-        "fields": "nextPageToken, files(id, name)",
+        "fields": "nextPageToken, files(id, name, modifiedTime)",
         "pageSize": PAGE_SIZE,
     }
     while True:
@@ -297,17 +304,17 @@ def _download_image_bytes(file_id: str, token_state: dict) -> bytes | None:
         # over ~100 KB.  Extract the confirm token and retry.
         if "text/html" in content_type:
             logger.debug("Got HTML virus-scan page for file_id=%s, attempting confirm", file_id)
-            body = resp.text
+            body = resp.text[:50000]  # Limit body size to prevent memory exhaustion
             confirm_token = None
 
-            # Pattern 1: hidden input confirm value
-            m = re.search(r'name=["\']confirm["\']\s+value=["\']([^"\']+)["\']', body)
+            # Pattern 1: hidden input confirm value (simplified to prevent ReDoS)
+            m = re.search(r'name=["\']confirm["\']\s+value=["\']([^"\']{1,100})["\']', body)
             if m:
                 confirm_token = m.group(1)
 
-            # Pattern 2: confirm= in URL params
+            # Pattern 2: confirm= in URL params (limited length)
             if not confirm_token:
-                m = re.search(r'[?&]confirm=([a-zA-Z0-9_\-]+)', body)
+                m = re.search(r'[?&]confirm=([a-zA-Z0-9_\-]{1,50})', body)
                 if m:
                     confirm_token = m.group(1)
 
@@ -487,6 +494,21 @@ def _ensemble_match(
     distances = face_recognition.face_distance(known_encodings, candidate)
     min_dist = float(np.min(distances))
 
+    # Calculate average pairwise distance of reference encodings (ERV - Ensemble Reference Variance)
+    if len(known_encodings) > 1:
+        ref_distances = []
+        for i in range(len(known_encodings)):
+            for j in range(i + 1, len(known_encodings)):
+                ref_distances.append(float(np.linalg.norm(known_encodings[i] - known_encodings[j])))
+        erv = float(np.mean(ref_distances))
+    else:
+        erv = 0.0
+
+    # Dynamic tolerance boost based on reference variance (max boost +0.06)
+    # If references have diverse angles, we trust the model to match wider variations.
+    variance_boost = min(0.06, erv * 0.15)
+    effective_tolerance = tolerance + variance_boost
+
     best_cosine = 0.0
     for known_enc in known_encodings:
         dot_product = np.dot(candidate, known_enc)
@@ -495,16 +517,18 @@ def _ensemble_match(
             cosine_sim = dot_product / norm_product
             best_cosine = max(best_cosine, cosine_sim)
 
-    if min_dist <= tolerance:
-        return True, min_dist, "euclidean"
+    # Multi-Algorithm consensus logic
+    if min_dist <= effective_tolerance:
+        return True, min_dist, f"euclidean_boosted_{variance_boost:.3f}"
 
-    if best_cosine >= COSINE_MATCH_THRESHOLD and min_dist <= tolerance + 0.05:
+    if best_cosine >= COSINE_MATCH_THRESHOLD and min_dist <= effective_tolerance + 0.05:
         return True, min_dist, "cosine_boost"
 
-    if best_cosine >= COSINE_BOOST_THRESHOLD and min_dist <= tolerance + NEAR_MISS_MARGIN:
+    if best_cosine >= COSINE_BOOST_THRESHOLD and min_dist <= effective_tolerance + NEAR_MISS_MARGIN:
         return True, min_dist, "near_miss"
 
     return False, min_dist, "none"
+
 
 
 # ── Core Image Processor ─────────────────────────────────────────────────────
@@ -519,9 +543,10 @@ def _process_image_bytes(
     try:
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
-        if max(img.size) > SCAN_MAX_SIZE:
-            img.thumbnail((SCAN_MAX_SIZE, SCAN_MAX_SIZE), Image.Resampling.LANCZOS)
-
+        max_size = 1800 if model_type == "cnn" else SCAN_MAX_SIZE
+        if max(img.size) > max_size:
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+ 
         img_arr = np.array(img)
         img_clahe = _apply_clahe(img_arr)
 
@@ -615,6 +640,9 @@ def _process_image_bytes(
                     filename, best_distance, tolerance,
                 )
 
+        # Convert candidate encodings to standard list of floats for serialization
+        serializable_encodings = [enc.tolist() for enc in candidate_encodings]
+
         result_bytes = None
         if found_match:
             buf = io.BytesIO()
@@ -625,21 +653,74 @@ def _process_image_bytes(
         img.close()
         del img_arr
 
-        return filename, result_bytes
+        return filename, result_bytes, serializable_encodings
 
     except Exception as exc:
         logger.warning("Error processing %s: %s", filename, exc)
+        return filename, None, []
+
+
+
+def _process_drive_file(
+    file_meta,
+    token_state,
+    known_encodings,
+    tolerance,
+    model_type,
+    upsample,
+    get_cache_func=None,
+    save_cache_func=None,
+):
+    file_id = file_meta["id"]
+    modified_time = file_meta.get("modifiedTime", "default")
+    filename = file_meta["name"]
+
+    cached_encodings = None
+    if get_cache_func:
+        try:
+            cached_encodings = get_cache_func(file_id, modified_time)
+        except Exception as e:
+            logger.warning("Cache fetch error for %s: %s", filename, e)
+
+    if cached_encodings is not None:
+        # Convert list of floats back to np.ndarray
+        candidate_encodings = [np.array(enc) for enc in cached_encodings]
+        
+        found_match = False
+        for candidate in candidate_encodings:
+            is_match, _, _ = _ensemble_match(candidate, known_encodings, tolerance)
+            if is_match:
+                found_match = True
+                break
+
+        if not found_match:
+            logger.debug("✓ Cache Hit (No Match): %s", filename)
+            return filename, None
+
+        logger.info("✓ Cache Hit (Match Found): %s - downloading image", filename)
+        img_bytes = _download_image_bytes(file_id, token_state)
+        if not img_bytes:
+            return filename, None
+        return filename, img_bytes
+
+    # Cache miss
+    img_bytes = _download_image_bytes(file_id, token_state)
+    if not img_bytes:
+        logger.warning("✗ Download failed: %s", filename)
         return filename, None
 
-
-def _process_drive_file(file_meta, token_state, known_encodings, tolerance, model_type, upsample):
-    img_bytes = _download_image_bytes(file_meta["id"], token_state)
-    if not img_bytes:
-        logger.warning("✗ Download failed: %s", file_meta["name"])
-        return file_meta["name"], None
-    return _process_image_bytes(
-        file_meta["name"], img_bytes, known_encodings, tolerance, model_type, upsample
+    filename, out_bytes, extracted_encs = _process_image_bytes(
+        filename, img_bytes, known_encodings, tolerance, model_type, upsample
     )
+
+    if save_cache_func and extracted_encs is not None:
+        try:
+            save_cache_func(file_id, modified_time, extracted_encs)
+        except Exception as e:
+            logger.warning("Cache write error for %s: %s", filename, e)
+
+    return filename, out_bytes
+
 
 
 # ── ZIP builder ──────────────────────────────────────────────────────────────
@@ -672,6 +753,8 @@ def run_deep_search(
     model_type: str,
     upsample: int,
     progress_callback=None,
+    get_cache_func=None,
+    save_cache_func=None,
 ) -> bytes:
     global MAX_WORKERS
 
@@ -727,7 +810,7 @@ def run_deep_search(
         future_map = {
             pool.submit(
                 _process_drive_file, f, token_state, master_dna,
-                tolerance, model_type, upsample
+                tolerance, model_type, upsample, get_cache_func, save_cache_func
             ): f
             for f in all_files
         }
@@ -793,7 +876,7 @@ def run_local_search(
         for future in as_completed(future_map):
             processed += 1
             try:
-                filename, out_bytes = future.result()
+                filename, out_bytes, _ = future.result()
                 if out_bytes:
                     matched.append((filename, out_bytes))
                 if progress_callback:

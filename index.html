@@ -6,34 +6,35 @@
     <meta name="description" content="EventAI — AI-powered facial recognition search engine. Upload selfies, scan event albums, and find every photo you appear in.">
     <meta name="theme-color" content="#070b12">
     <title>EventAI | AI Face Search Engine</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 
     <style>
     /* ═══════════════════════════════════════
        ROOT & RESET
-    ═══════════════════════════════════════ */
+       ═══════════════════════════════════════ */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-        --bg:        #070b12;
-        --bg2:       #0c1220;
-        --surface:   rgba(255,255,255,0.04);
-        --border:    rgba(255,255,255,0.08);
-        --border-hi: rgba(99,179,237,0.3);
-        --accent:    #38bdf8;
-        --purple:    #a78bfa;
-        --green:     #4ade80;
-        --amber:     #fbbf24;
-        --red:       #f87171;
-        --pink:      #f472b6;
-        --text:      #e2e8f0;
-        --muted:     #475569;
-        --mono:      'IBM Plex Mono', monospace;
-        --sans:      'Outfit', sans-serif;
+        --bg:          #030712;
+        --bg-glass:    rgba(10, 15, 30, 0.75);
+        --surface:     rgba(255, 255, 255, 0.03);
+        --surface-hover: rgba(255, 255, 255, 0.06);
+        --border:      rgba(255, 255, 255, 0.08);
+        --border-hi:   rgba(56, 189, 248, 0.3);
+        --accent:      #38bdf8;
+        --accent-grad: linear-gradient(135deg, #38bdf8 0%, #3b82f6 100%);
+        --pink-grad:   linear-gradient(135deg, #f472b6 0%, #ec4899 100%);
+        --purple-grad: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+        --green:       #4ade80;
+        --amber:       #fbbf24;
+        --red:         #f87171;
+        --text:        #f8fafc;
+        --muted:       #94a3b8;
+        --font-sans:   'Plus Jakarta Sans', sans-serif;
+        --font-mono:   'JetBrains Mono', monospace;
     }
 
     html { scroll-behavior: smooth; }
@@ -41,343 +42,512 @@
     body {
         background: var(--bg);
         color: var(--text);
-        font-family: var(--sans);
+        font-family: var(--font-sans);
         min-height: 100vh;
         overflow-x: hidden;
+        line-height: 1.5;
     }
 
     /* ═══════════════════════════════════════
-       BACKGROUND
-    ═══════════════════════════════════════ */
+       BACKGROUND EFFECTS
+       ═══════════════════════════════════════ */
     .bg-fx {
         position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
     }
     .bg-fx::before {
         content: '';
         position: absolute;
-        width: 900px; height: 900px;
+        width: 1000px; height: 1000px;
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(56,189,248,0.07) 0%, transparent 70%);
-        top: -300px; left: -300px;
-        animation: drift 20s ease-in-out infinite alternate;
+        background: radial-gradient(circle, rgba(56,189,248,0.08) 0%, transparent 65%);
+        top: -400px; left: -300px;
+        animation: drift 25s ease-in-out infinite alternate;
     }
     .bg-fx::after {
         content: '';
         position: absolute;
-        width: 700px; height: 700px;
+        width: 800px; height: 800px;
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(167,139,250,0.06) 0%, transparent 70%);
-        bottom: -200px; right: -200px;
-        animation: drift 25s ease-in-out infinite alternate-reverse;
+        background: radial-gradient(circle, rgba(167,139,250,0.07) 0%, transparent 65%);
+        bottom: -300px; right: -200px;
+        animation: drift 30s ease-in-out infinite alternate-reverse;
     }
-    @keyframes drift { from { transform: translate(0,0); } to { transform: translate(60px, 40px); } }
+    @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(80px, 50px) scale(1.1); } }
 
     .scan-line {
-        position: fixed; left: 0; right: 0; height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(56,189,248,0.15), transparent);
-        pointer-events: none; z-index: 1;
-        animation: scanMove 8s linear infinite;
+        position: fixed; left: 0; right: 0; height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(56,189,248,0.3), transparent);
+        pointer-events: none; z-index: 100;
+        animation: scanMove 6s linear infinite;
         opacity: 0;
     }
     .scan-line.active { opacity: 1; }
-    @keyframes scanMove { from { top: -1px; } to { top: 100vh; } }
+    @keyframes scanMove { from { top: -2px; } to { top: 100vh; } }
 
     /* ═══════════════════════════════════════
        LAYOUT
-    ═══════════════════════════════════════ */
-    .wrap { max-width: 1120px; margin: 0 auto; padding: 1.75rem 1.5rem; position: relative; z-index: 10; }
+       ═══════════════════════════════════════ */
+    .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem;
+        position: relative;
+        z-index: 10;
+    }
+
+    .app-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 3rem;
+    }
+    .header-left {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .header-logo-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        background: var(--purple-grad);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        flex-shrink: 0;
+        box-shadow: 0 4px 15px rgba(139, 92, 246, 0.25);
+    }
+
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+    }
+    @media (max-width: 900px) {
+        .dashboard-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 
     /* ═══════════════════════════════════════
-       CARDS
-    ═══════════════════════════════════════ */
+       CARDS & GLASSMORPHISM
+       ═══════════════════════════════════════ */
     .card {
-        background: var(--bg2);
+        background: var(--bg-glass);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         border: 1px solid var(--border);
         border-radius: 1.25rem;
-        transition: border-color 0.3s;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
         overflow: hidden;
     }
     .card::before {
         content: '';
         position: absolute; inset: 0;
-        background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, transparent 60%);
+        background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 60%);
         pointer-events: none;
     }
-    .card:hover { border-color: rgba(255,255,255,0.12); }
+    .card:hover {
+        border-color: rgba(255, 255, 255, 0.14);
+        box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+    }
 
     /* ═══════════════════════════════════════
-       TYPOGRAPHY
-    ═══════════════════════════════════════ */
-    .mono { font-family: var(--mono); }
+       TYPOGRAPHY & LOGO
+       ═══════════════════════════════════════ */
+    .mono { font-family: var(--font-mono); }
     .logo {
-        font-family: var(--sans);
-        font-weight: 900;
-        font-size: 1.5rem;
+        font-family: var(--font-sans);
+        font-weight: 850;
+        font-size: 1.6rem;
         letter-spacing: -0.03em;
-        background: linear-gradient(135deg, #fff 30%, var(--accent));
-        background-clip: text;
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background: linear-gradient(135deg, #ffffff 40%, var(--accent));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
     .pill {
-        font-family: var(--mono);
-        font-size: 0.85rem; font-weight: 500;
-        letter-spacing: 0.12em; text-transform: uppercase;
-        padding: 0.2rem 0.65rem; border-radius: 99px;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        padding: 0.25rem 0.75rem;
+        border-radius: 99px;
         border: 1px solid;
     }
-    .pill-blue  { color: var(--accent);  border-color: rgba(56,189,248,0.3);  background: rgba(56,189,248,0.07); }
-    .pill-green { color: var(--green);   border-color: rgba(74,222,128,0.3);   background: rgba(74,222,128,0.07); }
-    .pill-amber { color: var(--amber);   border-color: rgba(251,191,36,0.3);   background: rgba(251,191,36,0.07); }
-    .pill-red   { color: var(--red);     border-color: rgba(248,113,113,0.3);  background: rgba(248,113,113,0.07); }
+    .pill-blue  { color: var(--accent);  border-color: rgba(56,189,248,0.25); background: rgba(56,189,248,0.08); }
+    .pill-green { color: var(--green);   border-color: rgba(74,222,128,0.25);  background: rgba(74,222,128,0.08); }
+    .pill-amber { color: var(--amber);   border-color: rgba(251,191,36,0.25);  background: rgba(251,191,36,0.08); }
+    .pill-red   { color: var(--red);     border-color: rgba(248,113,113,0.25); background: rgba(248,113,113,0.08); }
 
     .label {
-        font-family: var(--mono); font-size: 0.8rem;
-        letter-spacing: 0.12em; text-transform: uppercase; color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
     }
 
     /* ═══════════════════════════════════════
        INPUTS
-    ═══════════════════════════════════════ */
+       ═══════════════════════════════════════ */
     .inp {
         width: 100%;
-        background: rgba(0,0,0,0.35);
+        background: rgba(0, 0, 0, 0.4);
         border: 1px solid var(--border);
         border-radius: 0.75rem;
-        padding: 0.8rem 1rem;
-        font-size: 0.82rem;
-        font-family: var(--mono);
+        padding: 0.85rem 1.1rem;
+        font-size: 0.85rem;
+        font-family: var(--font-mono);
         color: var(--text);
         outline: none;
-        transition: border-color 0.2s, box-shadow 0.2s;
+        transition: all 0.2s ease;
     }
-    .inp::placeholder { color: var(--muted); }
-    .inp:focus { border-color: var(--border-hi); box-shadow: 0 0 0 3px rgba(56,189,248,0.06); }
+    .inp::placeholder { color: rgba(148, 163, 184, 0.4); }
+    .inp:focus {
+        border-color: var(--border-hi);
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+        background: rgba(0, 0, 0, 0.5);
+    }
 
     /* ═══════════════════════════════════════
        DROPZONE
-    ═══════════════════════════════════════ */
+       ═══════════════════════════════════════ */
     .dropzone {
-        border: 1.5px dashed rgba(56,189,248,0.25);
-        border-radius: 1rem; padding: 1.75rem;
-        text-align: center; cursor: pointer;
-        transition: all 0.2s;
-        background: rgba(56,189,248,0.025);
+        border: 2px dashed rgba(56,189,248,0.2);
+        border-radius: 1rem;
+        padding: 2.25rem 1.5rem;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        background: rgba(56,189,248,0.015);
         position: relative;
     }
     .dropzone:hover, .dropzone.over {
-        border-color: rgba(56,189,248,0.5);
-        background: rgba(56,189,248,0.06);
+        border-color: var(--accent);
+        background: rgba(56,189,248,0.05);
+        box-shadow: 0 0 20px rgba(56,189,248,0.1) inset;
     }
 
     /* ═══════════════════════════════════════
        REFERENCE PREVIEWS
-    ═══════════════════════════════════════ */
+       ═══════════════════════════════════════ */
     .ref-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
-        gap: 0.5rem; margin-top: 1rem;
+        grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+        gap: 0.75rem;
+        margin-top: 1.25rem;
     }
     .ref-thumb {
-        position: relative; aspect-ratio: 1;
-        border-radius: 0.6rem; overflow: hidden;
-        border: 2px solid transparent; transition: border-color 0.25s;
+        position: relative;
+        aspect-ratio: 1;
+        border-radius: 0.75rem;
+        overflow: hidden;
+        border: 2px solid transparent;
+        transition: all 0.25s ease;
         background: rgba(0,0,0,0.3);
-        cursor: default;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     }
     .ref-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .ref-thumb .badge {
-        position: absolute; bottom: 3px; right: 3px;
-        font-family: var(--mono); font-size: 11px; font-weight: 700;
-        padding: 1px 5px; border-radius: 4px; line-height: 1.4;
+        position: absolute; bottom: 4px; right: 4px;
+        font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+        padding: 2px 6px; border-radius: 4px; line-height: 1;
     }
-    .badge-ok   { background: rgba(74,222,128,0.9);  color: #052e16; }
-    .badge-warn { background: rgba(251,191,36,0.9);  color: #451a03; }
-    .badge-bad  { background: rgba(248,113,113,0.9); color: #fff; }
-    .badge-chk  { background: rgba(100,116,139,0.85); color: #fff; }
+    .badge-ok   { background: var(--green);  color: #052e16; }
+    .badge-warn { background: var(--amber);  color: #451a03; }
+    .badge-bad  { background: var(--red);    color: #fff; }
+    .badge-chk  { background: #475569;        color: #fff; }
+
     .ref-thumb .rm {
-        position: absolute; top: 3px; left: 3px;
-        width: 18px; height: 18px; border-radius: 50%;
-        background: rgba(0,0,0,0.75); border: none; cursor: pointer;
-        color: #fff; font-size: 11px; line-height: 1;
+        position: absolute; top: 4px; left: 4px;
+        width: 20px; height: 20px; border-radius: 50%;
+        background: rgba(0,0,0,0.85); border: none; cursor: pointer;
+        color: #fff; font-size: 10px;
         display: flex; align-items: center; justify-content: center;
-        opacity: 0; transition: opacity 0.15s;
+        opacity: 0; transition: opacity 0.2s;
     }
     .ref-thumb:hover .rm { opacity: 1; }
-    .ref-thumb.ok   { border-color: rgba(74,222,128,0.4); }
-    .ref-thumb.warn { border-color: rgba(251,191,36,0.4); }
-    .ref-thumb.bad  { border-color: rgba(248,113,113,0.4); }
+    .ref-thumb.ok   { border-color: rgba(74,222,128,0.5); }
+    .ref-thumb.warn { border-color: rgba(251,191,36,0.5); }
+    .ref-thumb.bad  { border-color: rgba(248,113,113,0.5); }
 
     /* ═══════════════════════════════════════
-       QUALITY METER
-    ═══════════════════════════════════════ */
-    .q-bar-wrap { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; margin-top: 0.4rem; }
-    .q-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s, background 0.5s; }
+       QUALITY METER & PROGRESS
+       ═══════════════════════════════════════ */
+    .q-bar-wrap { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; margin-top: 0.5rem; }
+    .q-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.5s; }
+
+    .prog-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.05); overflow: hidden; }
+    .prog-fill {
+        height: 100%; width: 0%; border-radius: 3px;
+        background: linear-gradient(90deg, #38bdf8, #f472b6);
+        transition: width 0.35s ease;
+        position: relative;
+    }
+    .prog-fill::after {
+        content: '';
+        position: absolute; right: 0; top: 0; bottom: 0; width: 40px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
+    }
 
     /* ═══════════════════════════════════════
        SPEED / ACCURACY TOGGLE
-    ═══════════════════════════════════════ */
-    .mode-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+       ═══════════════════════════════════════ */
+    .mode-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
     .mode-btn {
-        padding: 0.65rem; border-radius: 0.65rem; cursor: pointer;
-        border: 1px solid var(--border); background: transparent;
-        font-family: var(--mono); font-size: 0.8rem; font-weight: 700;
-        letter-spacing: 0.06em; text-transform: uppercase;
-        color: var(--text); transition: all 0.2s; text-align: center;
+        padding: 0.85rem; border-radius: 0.75rem; cursor: pointer;
+        border: 1px solid var(--border); background: rgba(255,255,255,0.01);
+        font-family: var(--font-sans); font-size: 0.85rem; font-weight: 700;
+        color: var(--text); transition: all 0.2s ease; text-align: center;
+        outline: none;
     }
-    .mode-btn.active-speed  { border-color: rgba(251,191,36,0.5); background: rgba(251,191,36,0.07); color: var(--amber); }
-    .mode-btn.active-acc    { border-color: rgba(74,222,128,0.5);  background: rgba(74,222,128,0.07);  color: var(--green); }
+    .mode-btn:hover { border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.03); }
+    .mode-btn.active-speed  { border-color: var(--amber); background: rgba(251,191,36,0.08); color: var(--amber); box-shadow: 0 0 15px rgba(251,191,36,0.1); }
+    .mode-btn.active-acc    { border-color: var(--green);  background: rgba(74,222,128,0.08);  color: var(--green); box-shadow: 0 0 15px rgba(74,222,128,0.1); }
 
     /* ═══════════════════════════════════════
        TOLERANCE SLIDER
-    ═══════════════════════════════════════ */
-    .tol-wrap { position: relative; }
+       ═══════════════════════════════════════ */
+    .tol-wrap { position: relative; margin: 0.5rem 0; }
     .tol-gradient {
         height: 6px; border-radius: 3px; position: relative;
         background: linear-gradient(90deg, #ef4444 0%, #fbbf24 30%, #4ade80 50%, #fbbf24 70%, #ef4444 100%);
     }
     .tol-thumb-el {
         position: absolute; top: 50%; transform: translate(-50%, -50%);
-        width: 16px; height: 16px; border-radius: 50%;
-        background: #fff; border: 2px solid var(--accent);
-        box-shadow: 0 0 10px rgba(56,189,248,0.5);
-        pointer-events: none; transition: left 0.08s;
+        width: 18px; height: 18px; border-radius: 50%;
+        background: #ffffff; border: 2px solid var(--accent);
+        box-shadow: 0 0 12px rgba(56,189,248,0.6);
+        pointer-events: none; transition: left 0.08s ease;
     }
     input[type=range].tol-range {
-        appearance: none;
-        -webkit-appearance: none;
+        appearance: none; -webkit-appearance: none;
         position: absolute; inset: -5px 0; height: calc(100% + 10px);
-        background: transparent; cursor: pointer; z-index: 2; opacity: 0;
+        background: transparent; cursor: pointer; z-index: 2; opacity: 0; width: 100%;
     }
-    input[type=range].tol-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; }
+    input[type=range].tol-range::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; }
 
     /* ═══════════════════════════════════════
        BUTTONS
-    ═══════════════════════════════════════ */
+       ═══════════════════════════════════════ */
     .btn {
-        width: 100%; padding: 0.85rem; border-radius: 0.85rem; border: none;
-        font-family: var(--mono); font-size: 0.95rem; font-weight: 700;
-        letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
-        transition: all 0.2s; position: relative; overflow: hidden;
+        width: 100%; padding: 0.95rem; border-radius: 0.75rem; border: none;
+        font-family: var(--font-sans); font-size: 0.9rem; font-weight: 700;
+        letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden;
     }
     .btn::after {
-        content: '';
-        position: absolute; inset: 0;
+        content: ''; position: absolute; inset: 0;
         background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%);
         pointer-events: none;
     }
-    .btn-upload { background: linear-gradient(135deg, #1e3a5f, #1e40af); color: #93c5fd; }
-    .btn-upload:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(56,189,248,0.2); }
-    .btn-upload:disabled { opacity: 0.35; cursor: not-allowed; }
-
-    .btn-scan { background: linear-gradient(135deg, #581c87, #9f1239); color: #f0abfc; }
-    .btn-scan:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(244,114,182,0.25); }
-    .btn-scan:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    /* ═══════════════════════════════════════
-       PROGRESS
-    ═══════════════════════════════════════ */
-    .prog-track { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.05); overflow: hidden; }
-    .prog-fill {
-        height: 100%; width: 0%; border-radius: 3px;
-        background: linear-gradient(90deg, var(--accent), var(--pink));
-        transition: width 0.35s;
-        position: relative;
+    .btn-upload { background: var(--accent-grad); color: #040815; }
+    .btn-upload:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(56,189,248,0.35);
+        filter: brightness(1.1);
     }
-    .prog-fill::after {
-        content: '';
-        position: absolute; right: 0; top: 0; bottom: 0; width: 50px;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
+    .btn-upload:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+    .btn-scan { background: var(--pink-grad); color: #ffffff; }
+    .btn-scan:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(244,114,182,0.35);
+        filter: brightness(1.1);
     }
+    .btn-scan:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 
     /* ═══════════════════════════════════════
        STAT BOXES
-    ═══════════════════════════════════════ */
+       ═══════════════════════════════════════ */
     .stat-box {
-        background: rgba(0,0,0,0.25); border: 1px solid var(--border);
-        border-radius: 0.75rem; padding: 0.75rem 0.5rem; text-align: center;
+        background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+        border-radius: 0.75rem; padding: 0.85rem 0.5rem; text-align: center;
+        transition: border-color 0.2s;
     }
-    .stat-num { font-family: var(--mono); font-size: 1.25rem; font-weight: 700; line-height: 1; }
-    .stat-lbl { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.1em; color: var(--muted); margin-top: 0.35rem; text-transform: uppercase; }
+    .stat-box:hover { border-color: rgba(255,255,255,0.12); }
+    .stat-num { font-family: var(--font-mono); font-size: 1.4rem; font-weight: 700; line-height: 1; }
+    .stat-lbl { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.1em; color: var(--muted); margin-top: 0.4rem; text-transform: uppercase; }
 
     /* ═══════════════════════════════════════
        MATCH PREVIEW STRIP
-    ═══════════════════════════════════════ */
-    .match-strip { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.25rem; }
-    .match-strip::-webkit-scrollbar { height: 2px; }
+       ═══════════════════════════════════════ */
+    .match-strip { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.4rem; }
+    .match-strip::-webkit-scrollbar { height: 3px; }
     .match-strip::-webkit-scrollbar-thumb { background: rgba(74,222,128,0.3); border-radius: 2px; }
     .match-thumb {
-        width: 48px; height: 48px; border-radius: 0.5rem;
-        object-fit: cover; border: 2px solid rgba(74,222,128,0.4);
-        flex-shrink: 0;
-        animation: popIn 0.25s ease-out;
+        width: 52px; height: 52px; border-radius: 0.5rem;
+        object-fit: cover; border: 2px solid rgba(74,222,128,0.5);
+        flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        animation: popIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
-    @keyframes popIn { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: scale(1); } }
+    @keyframes popIn { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
 
     /* ═══════════════════════════════════════
        MISC
-    ═══════════════════════════════════════ */
-    .divider { display: flex; align-items: center; gap: 0.75rem; margin: 0.85rem 0; }
+       ═══════════════════════════════════════ */
+    .divider { display: flex; align-items: center; gap: 1rem; margin: 1.25rem 0; }
     .divider hr { flex: 1; border: none; border-top: 1px solid var(--border); }
-    .divider span { font-family: var(--mono); font-size: 0.6rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+    .divider span { font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.15em; }
 
-    .pulse { animation: pulse 1.4s infinite; }
-    @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(0.75); } }
+    .pulse { animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(0.85); } }
 
-    .tip-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
-    .tip-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .tip-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
+    .tip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
     .hidden { display: none !important; }
-    .fade-in { animation: fadeUp 0.35s ease-out; }
-    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .fade-in { animation: fadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
     /* ═══════════════════════════════════════
        LOGIN
-    ═══════════════════════════════════════ */
-    .login-wrap { max-width: 400px; margin: 5rem auto; padding: 2.5rem; text-align: center; }
+       ═══════════════════════════════════════ */
+    .login-wrap { max-width: 440px; margin: 6rem auto; padding: 3rem; text-align: center; }
     .login-icon {
-        width: 68px; height: 68px; border-radius: 1.25rem;
-        background: rgba(56,189,248,0.07); border: 1px solid rgba(56,189,248,0.2);
+        width: 72px; height: 72px; border-radius: 1.5rem;
+        background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.15);
         display: flex; align-items: center; justify-content: center;
-        font-size: 1.8rem; margin: 0 auto 1.5rem;
+        font-size: 2rem; margin: 0 auto 1.75rem;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
     }
     .btn-google {
         display: inline-flex; align-items: center; justify-content: center; gap: 0.75rem;
-        background: linear-gradient(135deg, #1e40af, #5b21b6);
-        color: white; padding: 0.85rem 2rem; border-radius: 0.85rem;
-        font-family: var(--mono); font-size: 0.72rem; font-weight: 700;
-        letter-spacing: 0.07em; text-decoration: none;
-        transition: all 0.2s; width: 100%;
-        box-shadow: 0 0 30px rgba(79,70,229,0.25);
+        background: #ffffff; color: #0f172a; padding: 0.95rem 2rem; border-radius: 0.75rem;
+        font-family: var(--font-sans); font-size: 0.85rem; font-weight: 700;
+        text-decoration: none; transition: all 0.25s ease; width: 100%;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.25);
     }
-    .btn-google:hover { transform: translateY(-2px); box-shadow: 0 0 50px rgba(79,70,229,0.4); }
+    .btn-google:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(255,255,255,0.15); background: #f8fafc; }
 
     /* ═══════════════════════════════════════
        PROFILE DROPDOWN
-    ═══════════════════════════════════════ */
+       ═══════════════════════════════════════ */
     .profile-pill {
-        display: flex; align-items: center; gap: 0.6rem;
-        background: rgba(255,255,255,0.04); border: 1px solid var(--border);
-        padding: 0.35rem 0.9rem 0.35rem 0.4rem; border-radius: 99px;
-        cursor: pointer; transition: background 0.2s;
+        display: flex; align-items: center; gap: 0.65rem;
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+        padding: 0.4rem 1.1rem 0.4rem 0.5rem; border-radius: 99px;
+        cursor: pointer; transition: all 0.2s ease;
     }
-    .profile-pill:hover { background: rgba(255,255,255,0.07); }
-    .av { width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid rgba(56,189,248,0.3); object-fit: cover; }
+    .profile-pill:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.15); }
+    .av { width: 32px; height: 32px; border-radius: 50%; border: 2px solid rgba(56,189,248,0.2); object-fit: cover; }
     .profile-drop {
-        position: absolute; right: 0; top: calc(100% + 0.6rem);
-        width: 300px; padding: 1.25rem; z-index: 50;
+        position: absolute; right: 0; top: calc(100% + 0.75rem);
+        width: 320px; padding: 1.5rem; z-index: 100;
     }
     .ref-chip {
-        display: flex; align-items: center; gap: 0.5rem;
-        background: rgba(255,255,255,0.03); border: 1px solid var(--border);
-        border-radius: 0.5rem; padding: 0.45rem 0.75rem; margin-bottom: 0.35rem;
-        transition: border-color 0.15s;
+        display: flex; align-items: center; gap: 0.6rem;
+        background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+        border-radius: 0.5rem; padding: 0.5rem 0.85rem; margin-bottom: 0.4rem;
+        transition: all 0.2s ease;
     }
-    .ref-chip:hover { border-color: rgba(248,113,113,0.3); }
+    .ref-chip:hover { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.02); }
+
+    /* ═══════════════════════════════════════
+       SAAS GALLERY & LIGHTBOX
+       ═══════════════════════════════════════ */
+    .gallery-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1.25rem;
+        margin-top: 1.5rem;
+    }
+    .gallery-item {
+        position: relative;
+        aspect-ratio: 1;
+        overflow: hidden;
+        border-radius: 1rem;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.3);
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        cursor: pointer;
+    }
+    .gallery-item:hover {
+        transform: translateY(-4px);
+        border-color: var(--accent);
+        box-shadow: 0 12px 24px rgba(56, 189, 248, 0.2);
+    }
+    .gallery-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.5s ease;
+    }
+    .gallery-item:hover .gallery-img {
+        transform: scale(1.05);
+    }
+    .gallery-cb-wrap {
+        position: absolute;
+        top: 0.75rem;
+        left: 0.75rem;
+        background: rgba(15, 23, 42, 0.85);
+        padding: 0.4rem;
+        border-radius: 0.5rem;
+        display: flex;
+        align-items: center;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        z-index: 10;
+        transition: all 0.2s ease;
+    }
+    .gallery-cb-wrap:hover {
+        background: rgba(15, 23, 42, 0.95);
+        border-color: var(--accent);
+    }
+    .gallery-cb {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        accent-color: var(--accent);
+    }
+    .gallery-dl-btn {
+        position: absolute;
+        bottom: 0.75rem;
+        right: 0.75rem;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #fff;
+        padding: 0.45rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        font-size: 0.8rem;
+        z-index: 10;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .gallery-dl-btn:hover {
+        background: var(--accent);
+        color: #030712;
+        border-color: var(--accent);
+        transform: scale(1.05);
+    }
+    .gallery-lbl {
+        position: absolute;
+        bottom: 0.75rem;
+        left: 0.75rem;
+        right: 3rem;
+        background: rgba(15, 23, 42, 0.85);
+        padding: 0.35rem 0.65rem;
+        border-radius: 0.5rem;
+        font-size: 0.65rem;
+        color: var(--text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        z-index: 5;
+        font-family: var(--font-mono);
+    }
 
     /* scrollbar */
-    ::-webkit-scrollbar { width: 3px; }
-    ::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.2); border-radius: 10px; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,0.3); }
     </style>
 </head>
 
@@ -388,9 +558,9 @@
 <div class="wrap">
 
     <!-- ──────── HEADER ──────── -->
-    <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2.5rem;">
-        <div style="display:flex;align-items:center;gap:0.65rem;">
-            <div style="width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#0369a1,#4f46e5);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">⚡</div>
+    <header class="app-header">
+        <div class="header-left">
+            <div class="header-logo-icon">⚡</div>
             <span class="logo">FaceFetch</span>
             <span class="pill pill-blue" id="model-pill">HOG · Fast</span>
         </div>
@@ -398,27 +568,27 @@
         <div style="position:relative;">
             <div id="user-profile" onclick="toggleProfile(event)" class="profile-pill hidden">
                 <img id="user-avatar" src="" alt="" class="av">
-                <span id="user-name" style="font-size:0.82rem;font-weight:600;"></span>
-                <svg width="9" height="5" viewBox="0 0 9 5" fill="none" style="color:var(--muted);">
+                <span id="user-name" style="font-size:0.85rem;font-weight:600;"></span>
+                <svg width="9" height="5" viewBox="0 0 9 5" fill="none" style="color:var(--muted); margin-left: 2px;">
                     <path d="M1 1l3.5 3L8 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
             </div>
 
             <div id="profile-manager" class="card profile-drop hidden fade-in">
-                <div style="display:flex;align-items:center;gap:0.65rem;margin-bottom:1rem;">
-                    <img id="user-avatar-2" src="" alt="" class="av" style="width:36px;height:36px;">
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+                    <img id="user-avatar-2" src="" alt="" class="av" style="width:40px;height:40px;">
                     <div>
-                        <p id="user-name-2" style="font-size:0.85rem;font-weight:700;"></p>
-                        <p id="user-email" class="mono" style="font-size:0.62rem;color:var(--muted);"></p>
+                        <p id="user-name-2" style="font-size:0.9rem;font-weight:700;margin-bottom:0.15rem;"></p>
+                        <p id="user-email" class="mono" style="font-size:0.7rem;color:var(--muted);"></p>
                     </div>
                 </div>
-                <hr style="border:none;border-top:1px solid var(--border);margin-bottom:0.85rem;">
-                <p class="label" style="margin-bottom:0.6rem;">Face DNA Saved</p>
-                <div id="reference-list" style="max-height:160px;overflow-y:auto;margin-bottom:0.85rem;">
-                    <p style="font-size:0.72rem;color:var(--muted);font-style:italic;">None saved.</p>
+                <hr style="border:none;border-top:1px solid var(--border);margin-bottom:1rem;">
+                <p class="label" style="margin-bottom:0.75rem;">Face DNA Saved</p>
+                <div id="reference-list" style="max-height:160px;overflow-y:auto;margin-bottom:1rem;display:flex;flex-direction:column;gap:0.25rem;">
+                    <p style="font-size:0.75rem;color:var(--muted);font-style:italic;">None saved.</p>
                 </div>
-                <hr style="border:none;border-top:1px solid var(--border);margin-bottom:0.85rem;">
-                <a href="/auth/logout" style="display:block;text-align:center;padding:0.6rem;background:rgba(248,113,113,0.07);color:var(--red);border:1px solid rgba(248,113,113,0.2);border-radius:0.6rem;font-family:var(--mono);font-size:0.68rem;font-weight:700;text-decoration:none;letter-spacing:0.07em;transition:all 0.2s;">
+                <hr style="border:none;border-top:1px solid var(--border);margin-bottom:1rem;">
+                <a href="/auth/logout" style="display:block;text-align:center;padding:0.75rem;background:rgba(248,113,113,0.06);color:var(--red);border:1px solid rgba(248,113,113,0.15);border-radius:0.75rem;font-family:var(--font-sans);font-size:0.75rem;font-weight:700;text-decoration:none;letter-spacing:0.05em;transition:all 0.2s ease;" onmouseover="this.style.background='rgba(248,113,113,0.1)'" onmouseout="this.style.background='rgba(248,113,113,0.06)'">
                     SIGN OUT
                 </a>
             </div>
@@ -428,137 +598,162 @@
     <!-- ──────── LOGIN VIEW ──────── -->
     <div id="login-view" class="card login-wrap fade-in">
         <div class="login-icon">🔎</div>
-        <h2 style="font-size:1.6rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:0.6rem;">Welcome to EventAI</h2>
-        <p style="font-size:0.82rem;color:var(--muted);line-height:1.7;margin-bottom:2rem;">
+        <h2 style="font-size:1.75rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:0.75rem;">Welcome to EventAI</h2>
+        <p style="font-size:0.9rem;color:var(--muted);line-height:1.6;margin-bottom:2.25rem;">
             AI-powered face detection across your entire event album.<br>
             Upload once, find yourself everywhere.
         </p>
         <a href="/auth/login" class="btn-google">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            Continue with Google
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0;"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            <span>Continue with Google</span>
         </a>
-        <div id="bypass-container" class="hidden" style="margin-top: 1.25rem;">
-            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+        <div id="bypass-container" class="hidden" style="margin-top: 1.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
                 <hr style="flex: 1; border: none; border-top: 1px solid var(--border);">
-                <span class="mono" style="font-size: 0.6rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em;">Development Mode</span>
+                <span class="mono" style="font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em;">Development Mode</span>
                 <hr style="flex: 1; border: none; border-top: 1px solid var(--border);">
             </div>
-            <a href="/auth/bypass" class="btn" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: linear-gradient(135deg, #1e293b, #0f172a); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.05); text-decoration: none; font-size: 0.75rem; text-shadow: 0 1px 2px rgba(0,0,0,0.5); box-shadow: 0 4px 12px rgba(0,0,0,0.25);">
+            <a href="/auth/bypass" class="btn" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: rgba(255, 255, 255, 0.03); color: var(--text); border: 1px solid var(--border); text-decoration: none; font-size: 0.8rem; text-transform: none; font-family: var(--font-sans);">
                 🔑 Bypass Google OAuth (Local Dev)
             </a>
         </div>
-        <p style="font-size:0.65rem;color:var(--muted);margin-top:1rem;font-family:var(--mono);">SECURE · PRIVATE · YOUR DATA STAYS YOURS</p>
+        <p style="font-size:0.65rem;color:var(--muted);margin-top:1.5rem;font-family:var(--font-mono);letter-spacing:0.05em;">SECURE · PRIVATE · BIOMETRIC DATA IS ENCRYPTED</p>
     </div>
 
     <!-- ──────── DASHBOARD ──────── -->
     <div id="dashboard-view" class="hidden fade-in">
 
         <!-- Tip Banner -->
-        <div id="tip-banner" style="display:flex;align-items:flex-start;gap:0.75rem;background:rgba(251,191,36,0.05);border:1px solid rgba(251,191,36,0.18);border-radius:0.9rem;padding:0.85rem 1.1rem;margin-bottom:1.5rem;">
-            <span style="font-size:1rem;margin-top:1px;">💡</span>
-            <div>
-                <p style="font-size:0.78rem;color:#fcd34d;font-weight:600;margin-bottom:0.2rem;">Quick search tips</p>
-                <p style="font-size:0.72rem;color:#a16207;line-height:1.6;">
-                    Upload <strong style="color:#fbbf24;">3–5 clear selfies</strong> from different angles. 
-                    Searches <strong style="color:#fbbf24;">detect faces in groups</strong> automatically. 
-                    Use tolerance <strong style="color:#fbbf24;">0.45–0.55</strong> for best results. More selfies = better accuracy!
+        <div id="tip-banner" style="display:flex;align-items:flex-start;gap:1rem;background:rgba(251,191,36,0.04);border:1px solid rgba(251,191,36,0.2);border-radius:1rem;padding:1rem 1.25rem;margin-bottom:2rem;box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+            <span style="font-size:1.25rem;line-height:1;margin-top:2px;">💡</span>
+            <div style="flex:1;">
+                <p style="font-size:0.85rem;color:#fbbf24;font-weight:700;margin-bottom:0.25rem;">Quick Search Tips</p>
+                <p style="font-size:0.78rem;color:rgba(254,240,138,0.9);line-height:1.6;">
+                    Upload <strong style="color:#ffffff;">3–5 clear selfies</strong> from different angles for best results. FaceFetch scans group shots and detects faces automatically. Recommended tolerance: <strong style="color:#ffffff;">0.45–0.55</strong>.
                 </p>
             </div>
-            <button onclick="this.closest('#tip-banner').remove()" style="background:none;border:none;color:#92400e;cursor:pointer;font-size:1rem;margin-left:auto;flex-shrink:0;">✕</button>
+            <button onclick="this.closest('#tip-banner').remove()" style="background:none;border:none;color:#fbbf24;cursor:pointer;font-size:1.15rem;padding:0.1rem;opacity:0.6;transition:opacity 0.2s;line-height:1;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">✕</button>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+
+        <div class="dashboard-grid">
 
             <!-- ═══════ CARD 1: FACE DNA ═══════ -->
-            <div class="card" style="padding:1.6rem;">
+            <div class="card" style="padding:2rem;">
 
                 <!-- Header -->
-                <div style="display:flex;align-items:center;gap:0.65rem;margin-bottom:0.35rem;">
-                    <div style="width:28px;height:28px;border-radius:7px;background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.25);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:0.7rem;font-weight:700;color:var(--accent);">01</div>
-                    <h2 style="font-size:1rem;font-weight:800;letter-spacing:-0.01em;">Face DNA</h2>
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+                    <div style="width:30px;height:30px;border-radius:8px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:0.75rem;font-weight:700;color:var(--accent);">01</div>
+                    <h2 style="font-size:1.15rem;font-weight:800;letter-spacing:-0.01em;">Face DNA</h2>
                     <span id="dna-badge" class="pill pill-green hidden">0 saved</span>
                 </div>
-                <p style="font-size:0.75rem;color:var(--muted);margin-bottom:1.1rem;line-height:1.6;">Your facial fingerprint. More angles = higher recall.</p>
+                <p style="font-size:0.8rem;color:var(--muted);margin-bottom:1.5rem;line-height:1.6;">Your facial fingerprint database. Add multiple angles to increase detection accuracy.</p>
+
+                <!-- Profile Selector -->
+                <div style="margin-bottom:1.5rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; background:rgba(0,0,0,0.25); border:1px solid var(--border); padding:0.65rem 1rem; border-radius:0.75rem;">
+                    <span class="label" style="font-size:0.7rem;">Active Profile</span>
+                    <select id="profile-select" style="background:#030712; color:var(--text); border:1px solid var(--border); padding:0.45rem 0.75rem; border-radius:0.5rem; font-size:0.75rem; outline:none; font-family:var(--font-sans); cursor:pointer; transition:all 0.2s ease;" onchange="changeProfile(this.value)" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+                        <option value="default">Me (Primary)</option>
+                        <option value="partner">Partner</option>
+                        <option value="family">Family / Child</option>
+                        <option value="friend">Friend</option>
+                    </select>
+                </div>
+
 
                 <!-- Tips -->
-                <div style="background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:0.75rem;padding:0.75rem 0.9rem;margin-bottom:1.1rem;">
-                    <div class="tip-row"><div class="tip-dot" style="background:var(--green);"></div><span style="font-size:0.71rem;color:var(--muted);">Face clearly visible, good lighting</span></div>
-                    <div class="tip-row"><div class="tip-dot" style="background:var(--green);"></div><span style="font-size:0.71rem;color:var(--muted);">3–5 angles (front, left, right)</span></div>
-                    <div class="tip-row"><div class="tip-dot" style="background:var(--amber);"></div><span style="font-size:0.71rem;color:var(--muted);">No sunglasses or heavy filters</span></div>
-                    <div class="tip-row" style="margin-bottom:0;"><div class="tip-dot" style="background:var(--amber);"></div><span style="font-size:0.71rem;color:var(--muted);">Avoid group shots as reference</span></div>
+                <div style="background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:0.75rem; padding:0.85rem 1.1rem; margin-bottom:1.5rem;">
+                    <div class="tip-row"><div class="tip-dot" style="background:var(--green);"></div><span style="font-size:0.75rem;color:var(--muted);">Face clearly visible, good lighting</span></div>
+                    <div class="tip-row"><div class="tip-dot" style="background:var(--green);"></div><span style="font-size:0.75rem;color:var(--muted);">3–5 angles (front, profile, left, right)</span></div>
+                    <div class="tip-row"><div class="tip-dot" style="background:var(--amber);"></div><span style="font-size:0.75rem;color:var(--muted);">No sunglasses, hats, or heavy filters</span></div>
+                    <div class="tip-row" style="margin-bottom:0;"><div class="tip-dot" style="background:var(--amber);"></div><span style="font-size:0.75rem;color:var(--muted);">Avoid group photos as references</span></div>
                 </div>
 
                 <!-- Dropzone -->
                 <div id="dropzone" class="dropzone">
-                    <div style="font-size:2rem;margin-bottom:0.4rem;">📸</div>
-                    <p id="file-label" style="font-size:0.8rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem;">Click or drag selfies here</p>
-                    <p style="font-size:0.65rem;color:var(--muted);">JPG, PNG, HEIC · Multiple files OK</p>
+                    <div style="font-size:2.25rem;margin-bottom:0.5rem;line-height:1;">📸</div>
+                    <p id="file-label" style="font-size:0.85rem;color:var(--accent);font-weight:700;margin-bottom:0.25rem;">Click or drag selfies here</p>
+                    <p style="font-size:0.7rem;color:var(--muted);">JPG, PNG, HEIC · Multiple files accepted</p>
                 </div>
                 <input type="file" id="ref-input" accept="image/*" multiple class="hidden">
 
                 <!-- Face validation status (shown after client-side check) -->
-                <div id="face-status" class="hidden" style="margin-top:0.75rem;padding:0.6rem 0.8rem;border-radius:0.6rem;font-family:var(--mono);font-size:0.68rem;"></div>
+                <div id="face-status" class="hidden" style="margin-top:1rem;padding:0.75rem 1rem;border-radius:0.75rem;font-family:var(--font-mono);font-size:0.75rem;line-height:1.5;"></div>
 
                 <!-- Preview -->
                 <div id="preview-grid" class="ref-grid hidden"></div>
 
                 <!-- Quality -->
-                <div id="quality-wrap" class="hidden" style="margin-top:0.85rem;">
-                    <div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;">
+                <div id="quality-wrap" class="hidden" style="margin-top:1.25rem;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
                         <span class="label">Reference Quality</span>
-                        <span id="q-label" class="mono" style="font-size:0.65rem;font-weight:700;color:var(--green);">—</span>
+                        <span id="q-label" class="mono" style="font-size:0.7rem;font-weight:700;color:var(--green);">—</span>
                     </div>
                     <div class="q-bar-wrap"><div id="q-bar" class="q-bar-fill" style="width:0%;background:var(--green);"></div></div>
                 </div>
 
-                <button id="btn-upload" class="btn btn-upload" style="margin-top:0.85rem;" disabled>
+                <!-- Consent Checkbox -->
+                <div style="margin-top:1.25rem; display:flex; align-items:flex-start; gap:0.6rem; padding:0.25rem 0;">
+                    <input type="checkbox" id="consent-check" style="margin-top:0.25rem; cursor:pointer; width:15px; height:15px; accent-color:var(--accent);" onchange="document.getElementById('btn-upload').disabled = !this.checked || !selectedFiles.length;">
+                    <label for="consent-check" style="font-size:0.72rem; color:var(--muted); line-height:1.5; cursor:pointer; user-select:none;">
+                        I agree to the <a href="/privacy" target="_blank" style="color:var(--accent); text-decoration:underline; font-weight:500;">Biometric Consent &amp; Privacy Policy</a>. I authorize FaceFetch to generate and store my Face DNA.
+                    </label>
+                </div>
+
+                <button id="btn-upload" class="btn btn-upload" style="margin-top:1.25rem;" disabled>
                     Extract &amp; Save Face DNA
                 </button>
             </div>
 
             <!-- ═══════ CARD 2: DEEP SCAN ═══════ -->
-            <div class="card" style="padding:1.6rem;">
+            <div class="card" style="padding:2rem;">
 
-                <div style="display:flex;align-items:center;gap:0.65rem;margin-bottom:0.35rem;">
-                    <div style="width:28px;height:28px;border-radius:7px;background:rgba(244,114,182,0.1);border:1px solid rgba(244,114,182,0.25);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:0.7rem;font-weight:700;color:var(--pink);">02</div>
-                    <h2 style="font-size:1rem;font-weight:800;letter-spacing:-0.01em;">Deep Scan</h2>
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+                    <div style="width:30px;height:30px;border-radius:8px;background:rgba(244,114,182,0.08);border:1px solid rgba(244,114,182,0.2);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:0.75rem;font-weight:700;color:var(--pink);">02</div>
+                    <h2 style="font-size:1.15rem;font-weight:800;letter-spacing:-0.01em;">Deep Scan</h2>
                 </div>
-                <p style="font-size:0.75rem;color:var(--muted);margin-bottom:1.1rem;line-height:1.6;">Provide your event album. AI scans every face and returns only your photos.</p>
+                <p style="font-size:0.8rem;color:var(--muted);margin-bottom:1.5rem;line-height:1.6;">Scan an entire event album. AI analyzes matches and serves your photos.</p>
 
                 <!-- Speed / Accuracy Toggle -->
-                <p class="label" style="margin-bottom:0.5rem;">Scan Mode</p>
-                <div class="mode-toggle" style="margin-bottom:1rem;">
+                <p class="label" style="margin-bottom:0.6rem;">Scan Mode</p>
+                <div class="mode-toggle" style="margin-bottom:1.5rem;">
                     <button id="mode-speed" class="mode-btn active-speed" onclick="setMode('speed')">
-                        ⚡ Fast<br>
-                        <span style="font-weight:400;letter-spacing:0;text-transform:none;font-size:0.6rem;opacity:0.7;">HOG · ~0.1s/photo</span>
+                        ⚡ Fast Scan<br>
+                        <span style="font-weight:400;font-size:0.65rem;opacity:0.7;">HOG Model · ~0.1s/photo</span>
                     </button>
                     <button id="mode-acc" class="mode-btn" onclick="setMode('accurate')">
-                        🎯 Accurate<br>
-                        <span style="font-weight:400;letter-spacing:0;text-transform:none;font-size:0.6rem;opacity:0.7;">CNN · ~1s/photo</span>
+                        🎯 Accurate Scan<br>
+                        <span style="font-weight:400;font-size:0.65rem;opacity:0.7;">CNN Model · ~1s/photo</span>
                     </button>
                 </div>
 
                 <!-- Drive URL -->
-                <p class="label" style="margin-bottom:0.45rem;">Option 1 — Google Drive Folder</p>
-                <input type="text" id="drive-url" class="inp" placeholder="https://drive.google.com/drive/folders/..." style="margin-bottom:0.85rem;">
+                <p class="label" style="margin-bottom:0.6rem;">Option 1 — Google Drive Folder</p>
+                <div style="display:flex; gap:0.6rem; margin-bottom:1rem; align-items: stretch;">
+                    <input type="text" id="drive-url" class="inp" placeholder="https://drive.google.com/drive/folders/..." style="flex:1;">
+                    <button id="btn-picker" class="btn" style="width:auto; padding:0 1.25rem; font-size:0.8rem; background:rgba(255,255,255,0.03); color:var(--text); border:1px solid var(--border); border-radius:0.75rem; display:flex; align-items:center; gap:0.5rem;" onclick="openGooglePicker(event)">
+                        <span>📂</span> <span>Browse</span>
+                    </button>
+                </div>
+
 
                 <div class="divider"><hr><span>or</span><hr></div>
 
                 <!-- Local Upload -->
-                <p class="label" style="margin-bottom:0.45rem;">Option 2 — Upload from Device</p>
+                <p class="label" style="margin-bottom:0.6rem;">Option 2 — Upload from Device</p>
                 <div id="local-trigger"
                      onclick="document.getElementById('local-folder-input').click()"
-                     style="display:flex;align-items:center;justify-content:space-between;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:0.75rem;padding:0.75rem 1rem;cursor:pointer;transition:border-color 0.2s;margin-bottom:1rem;">
-                    <span id="local-folder-label" class="mono" style="font-size:0.75rem;color:var(--muted);">Select event photos...</span>
-                    <span style="font-size:1rem;">📁</span>
+                     style="display:flex; align-items:center; justify-content:space-between; background:rgba(0,0,0,0.4); border:1px solid var(--border); border-radius:0.75rem; padding:0.85rem 1.1rem; cursor:pointer; transition:all 0.2s ease;">
+                    <span id="local-folder-label" class="mono" style="font-size:0.8rem; color:rgba(148, 163, 184, 0.5);">Select event photos...</span>
+                    <span style="font-size:1.15rem; line-height:1;">📁</span>
                 </div>
                 <input type="file" id="local-folder-input" accept="image/*" multiple class="hidden">
 
                 <!-- Tolerance -->
-                <div style="background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:0.85rem;padding:0.85rem 1rem;margin-bottom:1rem;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                <div style="background:rgba(0,0,0,0.25); border:1px solid var(--border); border-radius:1rem; padding:1rem 1.25rem; margin-top:1.5rem; margin-bottom:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
                         <p class="label">Match Tolerance</p>
-                        <span id="tol-val" class="mono" style="font-size:0.68rem;font-weight:700;color:var(--accent);">0.45 — Precise</span>
+                        <span id="tol-val" class="mono" style="font-size:0.75rem; font-weight:700; color:var(--accent);">0.45 — Precise</span>
                     </div>
                     <div class="tol-wrap">
                         <div class="tol-gradient">
@@ -566,15 +761,15 @@
                         </div>
                         <input type="range" id="tol-slider" class="tol-range" min="0.35" max="0.65" step="0.01" value="0.45">
                     </div>
-                    <div style="display:flex;justify-content:space-between;margin-top:0.35rem;">
-                        <span class="label" style="font-size:0.55rem;">STRICT</span>
-                        <span class="label" style="font-size:0.55rem;">LOOSE</span>
+                    <div style="display:flex; justify-content:space-between; margin-top:0.4rem;">
+                        <span class="label" style="font-size:0.6rem;">STRICT</span>
+                        <span class="label" style="font-size:0.6rem;">LOOSE</span>
                     </div>
-                    <p id="tol-hint" style="font-size:0.68rem;color:var(--muted);margin-top:0.5rem;line-height:1.5;font-style:italic;">Good default for most event photos.</p>
+                    <p id="tol-hint" style="font-size:0.72rem; color:var(--muted); margin-top:0.6rem; line-height:1.5; font-style:italic;">Good default for most event photos.</p>
                 </div>
 
                 <!-- Live Stats (shown during scan) -->
-                <div id="scan-stats" class="hidden" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:1rem;">
+                <div id="scan-stats" class="hidden" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.6rem; margin-bottom:1.25rem;">
                     <div class="stat-box">
                         <div class="stat-num" id="st-scanned" style="color:var(--accent);">0</div>
                         <div class="stat-lbl">scanned</div>
@@ -590,36 +785,65 @@
                 </div>
 
                 <!-- Match preview strip -->
-                <div id="match-preview-wrap" class="hidden" style="margin-bottom:1rem;">
-                    <p class="label" style="margin-bottom:0.4rem;">Live Matches</p>
+                <div id="match-preview-wrap" class="hidden" style="margin-bottom:1.25rem;">
+                    <p class="label" style="margin-bottom:0.5rem;">Live Matches</p>
                     <div class="match-strip" id="match-strip"></div>
                 </div>
 
                 <button id="btn-search" class="btn btn-scan">Start Deep Search</button>
-                <button id="btn-cancel" class="btn hidden" style="margin-top:0.5rem;background:rgba(248,113,113,0.1);color:var(--red);border:1px solid rgba(248,113,113,0.25);" onclick="cancelScan()">✕ Cancel Scan</button>
+                <button id="btn-cancel" class="btn hidden" style="margin-top:0.6rem; background:rgba(248,113,113,0.06); color:var(--red); border:1px solid rgba(248,113,113,0.15);" onclick="cancelScan()">✕ Cancel Scan</button>
 
                 <!-- Progress -->
-                <div id="progress-area" class="hidden" style="margin-top:1rem;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.45rem;">
-                        <div style="display:flex;align-items:center;gap:0.45rem;">
-                            <div style="width:7px;height:7px;border-radius:50%;background:var(--green);" class="pulse"></div>
-                            <span class="label" style="font-size:0.58rem;">Scanning...</span>
+                <div id="progress-area" class="hidden" style="margin-top:1.25rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <div style="width:8px; height:8px; border-radius:50%; background:var(--green);" class="pulse"></div>
+                            <span class="label" style="font-size:0.65rem;">Scanning...</span>
                         </div>
-                        <div style="display:flex;align-items:center;gap:0.75rem;">
-                            <span class="mono" style="font-size:0.65rem;color:var(--green);">✓ <span id="live-ct">0</span> found</span>
-                            <span id="prog-count" class="mono" style="font-size:0.65rem;color:var(--accent);">0/0</span>
+                        <div style="display:flex; align-items:center; gap:0.75rem;">
+                            <span class="mono" style="font-size:0.7rem; color:var(--green);">✓ <span id="live-ct">0</span> found</span>
+                            <span id="prog-count" class="mono" style="font-size:0.7rem; color:var(--accent);">0/0</span>
                         </div>
                     </div>
                     <div class="prog-track"><div id="progress-bar" class="prog-fill"></div></div>
-                    <div style="display:flex;justify-content:space-between;margin-top:0.4rem;">
-                        <p id="status-text" class="mono" style="font-size:0.6rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;max-width:70%;"></p>
-                        <p id="eta-text" class="mono" style="font-size:0.62rem;font-weight:700;color:var(--pink);">ETA: —</p>
+                    <div style="display:flex; justify-content:space-between; margin-top:0.5rem; gap:1rem; align-items:center;">
+                        <p id="status-text" class="mono" style="font-size:0.65rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;"></p>
+                        <p id="eta-text" class="mono" style="font-size:0.68rem; font-weight:700; color:var(--pink); white-space:nowrap;">ETA: —</p>
                     </div>
                 </div>
 
             </div><!-- /card 2 -->
         </div><!-- /grid -->
+
+        <!-- ═══════ SAAS RESULTS GALLERY ═══════ -->
+        <div id="results-gallery-container" class="card hidden" style="margin-top:2rem; padding:2rem; animation:slideUp 0.4s ease-out;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; flex-wrap:wrap; gap:1rem;">
+                <div>
+                </div>
+                <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+                    <button id="btn-select-all" class="btn" style="padding:0.5rem 0.8rem;font-size:0.68rem;background:rgba(255,255,255,0.05);color:var(--text);border:1px solid var(--border);">Select All</button>
+                    <button id="btn-deselect-all" class="btn" style="padding:0.5rem 0.8rem;font-size:0.68rem;background:rgba(255,255,255,0.05);color:var(--text);border:1px solid var(--border);">Deselect All</button>
+                    <button id="btn-download-selected" class="btn" style="padding:0.5rem 0.9rem;font-size:0.68rem;background:var(--accent);color:#070b12;font-weight:700;border:none;box-shadow:0 4px 12px rgba(56,189,248,0.25);">Download Selected (ZIP)</button>
+                    <button id="btn-download-all" class="btn" style="padding:0.5rem 0.9rem;font-size:0.68rem;background:transparent;color:var(--accent);border:1px solid var(--accent);">Download All (ZIP)</button>
+                </div>
+            </div>
+            <div id="gallery-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));gap:1rem;margin-top:1rem;">
+                <!-- Matched images will be injected here -->
+            </div>
+        </div>
+
+        <!-- Lightbox Modal -->
+        <div id="lightbox-modal" class="hidden" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(7,11,18,0.92);backdrop-filter:blur(10px);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:zoom-out;opacity:0;transition:opacity 0.25s ease;">
+            <div style="position:absolute;top:1rem;right:1.5rem;display:flex;gap:1rem;align-items:center;z-index:100000;">
+                <span id="lightbox-filename" class="mono" style="font-size:0.75rem;color:var(--text-muted);background:rgba(0,0,0,0.5);padding:0.4rem 0.8rem;border-radius:0.5rem;">photo.jpg</span>
+                <button id="lightbox-download" style="background:var(--accent);border:none;color:#070b12;font-weight:700;padding:0.4rem 0.8rem;border-radius:0.5rem;font-size:0.7rem;cursor:pointer;">Download</button>
+                <span style="font-size:1.5rem;color:#fff;cursor:pointer;user-select:none;" onclick="closeLightbox()">✕</span>
+            </div>
+            <img id="lightbox-img" src="" style="max-width:90%;max-height:82%;border-radius:0.85rem;box-shadow:0 24px 60px rgba(0,0,0,0.8);border:1px solid rgba(255,255,255,0.08);transition:transform 0.25s ease;cursor:default;">
+        </div>
+
     </div><!-- /dashboard-view -->
+
 
 </div><!-- /wrap -->
 
@@ -634,6 +858,14 @@ let faceApiReady    = false;
 let scanStartTime   = 0;
 let scanAbortController = null;
 let isScanning      = false;
+
+let currentProfileName = 'default';
+let currentSearchId = null;
+let currentMatchedFiles = [];
+let googleClientId = null;
+let pickerApiLoaded = false;
+let gapiToken = null;
+
 
 // ══════════════════════════════════════════════════════════
 //  TOAST
@@ -773,6 +1005,7 @@ function setSelectedFiles(files) {
     selectedFiles = files;
     const label   = document.getElementById('file-label');
     const btnUp   = document.getElementById('btn-upload');
+    const consent = document.getElementById('consent-check');
     if (files.length === 0) {
         label.textContent = 'Click or drag selfies here';
         btnUp.disabled = true;
@@ -781,7 +1014,7 @@ function setSelectedFiles(files) {
         document.getElementById('face-status').classList.add('hidden');
     } else {
         label.textContent = `${files.length} photo${files.length>1?'s':''} selected`;
-        btnUp.disabled = false;
+        btnUp.disabled = !consent.checked;
         renderPreviews(files);
     }
 }
@@ -820,13 +1053,13 @@ function syncTolSlider(val) {
 }
 
 // ══════════════════════════════════════════════════════════
-//  REFERENCES
+//  REFERENCES & PROFILES
 // ══════════════════════════════════════════════════════════
 async function loadReferences() {
     const list  = document.getElementById('reference-list');
     const badge = document.getElementById('dna-badge');
     try {
-        const r = await fetch('/my-encodings');
+        const r = await fetch(`/my-encodings?profile_name=${encodeURIComponent(currentProfileName)}`);
         const d = await r.json();
         if (d.references && d.references.length > 0) {
             badge.textContent = `${d.references.length} saved`;
@@ -856,6 +1089,18 @@ async function deleteRef(e, id) {
     } catch { toast('Network error', 'error'); }
 }
 
+async function changeProfile(profileName) {
+    currentProfileName = profileName;
+    const select = document.getElementById('profile-select');
+    const optLabel = select.options[select.selectedIndex].text;
+    toast(`Active Profile changed to: ${optLabel}`, 'info');
+    
+    // Refresh references for this profile
+    const list = document.getElementById('reference-list');
+    list.innerHTML = `<p style="font-size:0.72rem;color:var(--muted);font-style:italic;">Loading DNA...</p>`;
+    await loadReferences();
+}
+
 function toggleProfile(e) {
     e && e.stopPropagation();
     const m = document.getElementById('profile-manager');
@@ -868,6 +1113,175 @@ window.addEventListener('click', e => {
     const b = document.getElementById('user-profile');
     if (m && b && !b.contains(e.target) && !m.contains(e.target)) m.classList.add('hidden');
 });
+
+// ══════════════════════════════════════════════════════════
+//  GOOGLE PICKER API
+// ══════════════════════════════════════════════════════════
+function loadGooglePickerScript() {
+    const s = document.createElement('script');
+    s.src = "https://apis.google.com/js/api.js";
+    s.onload = () => {
+        gapi.load('picker', { callback: () => { pickerApiLoaded = true; } });
+    };
+    document.body.appendChild(s);
+}
+
+async function openGooglePicker(e) {
+    if (e) e.preventDefault();
+    if (!pickerApiLoaded) {
+        return toast("Google Picker API is loading. Please try again in a few seconds.", "info");
+    }
+    
+    let developerKey = null;
+    try {
+        const r = await fetch('/auth/token');
+        const d = await r.json();
+        gapiToken = d.token;
+        developerKey = d.api_key;
+    } catch(err) {
+        console.error(err);
+    }
+    
+    if (!gapiToken || gapiToken === "mock_drive_token") {
+        return toast("Please log in using Google to browse your Drive folders.", "warn");
+    }
+    
+    const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS);
+    view.setMimeTypes("application/vnd.google-apps.folder");
+    view.setSelectFolderEnabled(true);
+    
+    const pickerBuilder = new google.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(gapiToken)
+        .setCallback(pickerCallback)
+        .setTitle("Select Event Folder");
+
+    if (developerKey) {
+        pickerBuilder.setDeveloperKey(developerKey);
+    }
+
+    const picker = pickerBuilder.build();
+    picker.setVisible(true);
+}
+
+function pickerCallback(data) {
+    if (data.action == google.picker.Action.PICKED) {
+        const doc = data.docs[0];
+        const folderUrl = `https://drive.google.com/drive/folders/${doc.id}`;
+        document.getElementById('drive-url').value = folderUrl;
+        toast(`📁 Selected folder: ${doc.name}`);
+        
+        // Clear local files input
+        document.getElementById('local-folder-input').value = '';
+        const lLbl = document.getElementById('local-folder-label');
+        lLbl.textContent      = 'Select event photos…';
+        lLbl.style.color      = 'var(--muted)';
+        lLbl.style.fontWeight = '400';
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+//  RESULTS GALLERY & LIGHTBOX
+// ══════════════════════════════════════════════════════════
+function showGallery(searchId, filenames) {
+    currentSearchId = searchId;
+    currentMatchedFiles = filenames || [];
+    
+    const container = document.getElementById('results-gallery-container');
+    const grid = document.getElementById('gallery-grid');
+    grid.innerHTML = '';
+    
+    currentMatchedFiles.forEach(name => {
+        const item = document.createElement('div');
+        item.className = 'gallery-item';
+        
+        const imgUrl = `/result-image/${searchId}/${encodeURIComponent(name)}`;
+        
+        const img = document.createElement('img');
+        img.src = imgUrl;
+        img.className = 'gallery-img';
+        img.onclick = (e) => {
+            if (e.target.tagName !== 'INPUT' && !e.target.closest('.gallery-dl-btn')) {
+                openLightbox(imgUrl, name);
+            }
+        };
+        
+        // Selection Checkbox Overlay
+        const cbContainer = document.createElement('div');
+        cbContainer.className = 'gallery-cb-wrap';
+        
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = name;
+        cb.checked = true; // default select all
+        cb.className = 'gallery-cb';
+        cbContainer.appendChild(cb);
+        
+        // Individual Download Button
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'gallery-dl-btn';
+        dlBtn.innerHTML = '📥';
+        dlBtn.title = 'Download photo';
+        dlBtn.onclick = (e) => {
+            e.stopPropagation();
+            const a = document.createElement('a');
+            a.href = imgUrl;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        };
+        
+        // Name Label Overlay
+        const lbl = document.createElement('div');
+        lbl.className = 'gallery-lbl';
+        lbl.textContent = name;
+        lbl.title = name;
+
+        item.appendChild(img);
+        item.appendChild(cbContainer);
+        item.appendChild(dlBtn);
+        item.appendChild(lbl);
+        grid.appendChild(item);
+    });
+    
+    container.classList.remove('hidden');
+    setTimeout(() => {
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+}
+
+function openLightbox(url, filename) {
+    const modal = document.getElementById('lightbox-modal');
+    const img = document.getElementById('lightbox-img');
+    const nameLabel = document.getElementById('lightbox-filename');
+    const dlBtn = document.getElementById('lightbox-download');
+    
+    img.src = url;
+    nameLabel.textContent = filename;
+    dlBtn.onclick = () => {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+    
+    modal.classList.remove('hidden');
+    setTimeout(() => {
+        modal.style.opacity = '1';
+    }, 10);
+}
+
+function closeLightbox() {
+    const modal = document.getElementById('lightbox-modal');
+    modal.style.opacity = '0';
+    setTimeout(() => {
+        modal.classList.add('hidden');
+    }, 250);
+}
+
 
 // ══════════════════════════════════════════════════════════
 //  MAIN INIT
@@ -894,6 +1308,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('user-name-2').textContent  = d.user.name;
             document.getElementById('user-email').textContent   = d.user.email || '';
             toast(`Welcome back, ${d.user.name.split(' ')[0]}!`);
+            googleClientId = d.google_client_id;
+            if (googleClientId) {
+                loadGooglePickerScript();
+            }
             loadReferences();
         } else if (d.bypass_enabled) {
             document.getElementById('bypass-container').classList.remove('hidden');
@@ -926,9 +1344,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         for (const file of selectedFiles) {
             const fd = new FormData();
             fd.append('file', file);
-            // Fast defaults: num_jitters=1 gives ~1-2 sec encoding vs 5-10 sec with 10
             fd.append('num_jitters', '1');
-            fd.append('model', 'large');  // use large model for accurate faces
+            fd.append('model', 'large');
+            fd.append('profile_name', currentProfileName);
             try {
                 const r = await fetch('/upload-reference', { method: 'POST', body: fd });
                 if (r.ok) ok++; else fail++;
@@ -938,6 +1356,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (ok)   { toast(`✓ ${ok} Face DNA(s) saved`); loadReferences(); }
         if (fail) toast(`✗ ${fail} upload(s) failed`, 'error');
 
+        document.getElementById('consent-check').checked = false;
         setSelectedFiles([]);
         fi.value = '';
         btn.textContent = 'Extract & Save Face DNA';
@@ -1020,6 +1439,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         fd.append('tolerance', slider.value);
         fd.append('model', scanMode === 'accurate' ? 'cnn' : 'hog');
         fd.append('upsample', scanMode === 'accurate' ? '1' : '0');
+        fd.append('profile_name', currentProfileName);
 
         let endpoint = '/search';
         if (localFiles.length > 0) {
@@ -1112,9 +1532,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         } else {
                             toast(`🎉 Done! ${data.matched} photo${data.matched!==1?'s':''} found in ${dur}`);
                             if (data.search_id) {
-                                setTimeout(() => window.location.href = `/download/${data.search_id}`, 1800);
+                                showGallery(data.search_id, data.filenames);
                             }
                         }
+
 
                     } else if (data.type === 'error') {
                         toast('AI error: ' + (data.message || 'unknown'), 'error');
@@ -1155,6 +1576,60 @@ document.addEventListener('DOMContentLoaded', async () => {
         toast('Login failed. Please try again.', 'error');
         window.history.replaceState({}, '', '/');
     }
+
+    // ── Gallery Actions Wiring
+    document.getElementById('btn-select-all').addEventListener('click', () => {
+        document.querySelectorAll('#gallery-grid input[type="checkbox"]').forEach(cb => cb.checked = true);
+    });
+    document.getElementById('btn-deselect-all').addEventListener('click', () => {
+        document.querySelectorAll('#gallery-grid input[type="checkbox"]').forEach(cb => cb.checked = false);
+    });
+    document.getElementById('btn-download-all').addEventListener('click', () => {
+        if (currentSearchId) {
+            window.location.href = `/download/${currentSearchId}`;
+        }
+    });
+    document.getElementById('btn-download-selected').addEventListener('click', async () => {
+        if (!currentSearchId) return;
+        const selected = [];
+        document.querySelectorAll('#gallery-grid input[type="checkbox"]:checked').forEach(cb => {
+            selected.push(cb.value);
+        });
+        if (selected.length === 0) {
+            return toast('⚠ Select at least one photo to download', 'error');
+        }
+        
+        const btn = document.getElementById('btn-download-selected');
+        btn.disabled = true;
+        btn.textContent = 'Downloading...';
+        
+        try {
+            const resp = await fetch(`/download-selected/${currentSearchId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filenames: selected })
+            });
+            if (resp.ok) {
+                const blob = await resp.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `facefetch_selected_${currentSearchId.slice(0, 8)}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                toast(`✓ Downloaded ${selected.length} photo(s)`);
+            } else {
+                toast('Error creating custom ZIP download', 'error');
+            }
+        } catch (e) {
+            toast('Network error during download', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Download Selected (ZIP)';
+        }
+    });
 });
 
 // Cancel scan function
