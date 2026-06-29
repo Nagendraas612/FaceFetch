@@ -508,6 +508,14 @@ async def list_drive_files(
         return {"files": files, "total": len(files)}
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code if e.response is not None else 500
+        detail = "Failed to list Drive folder files."
+        if status_code == 404:
+            detail = "Google Drive folder not found. Please verify the link and ensure it is shared publically or with your account."
+        elif status_code == 403:
+            detail = "Access denied to Google Drive folder. Please verify the folder's sharing permissions."
+        raise HTTPException(status_code=status_code, detail=detail)
     except Exception as e:
         logger.error("list-drive-files failed: %s", e)
         raise HTTPException(500, "Failed to list Drive folder files.")

@@ -206,12 +206,12 @@ def _make_drive_request(url: str, token_state: dict, **kwargs) -> requests.Respo
         try:
             resp = session.get(url, headers=headers, params=params, **kwargs)
 
-            if resp.status_code == 401:
-                if not token_state.get("_use_api_key") and _refresh_access_token(token_state):
+            if resp.status_code in (401, 403, 404):
+                if resp.status_code == 401 and not token_state.get("_use_api_key") and _refresh_access_token(token_state):
                     continue
                 if not token_state.get("_use_api_key") and GOOGLE_API_KEY:
                     token_state["_use_api_key"] = True
-                    logger.info("🔑 Switching to API key for public folder access")
+                    logger.info("🔑 Switching to API key for public folder access (status %d)", resp.status_code)
                     continue
                 resp.raise_for_status()
 
