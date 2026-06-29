@@ -1467,21 +1467,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     //  HYBRID SCAN ENGINE
     // ══════════════════════════════════════════════════════════
 
-    // Helper: Crop face from image using face-api.js detection
-    async function cropFaceFromImage(imgElement, detection) {
-        const box = detection.detection.box;
-        // Add padding around face (30% on each side)
-        const pad = 0.3;
-        const x = Math.max(0, Math.round(box.x - box.width * pad));
-        const y = Math.max(0, Math.round(box.y - box.height * pad));
-        const w = Math.min(imgElement.width - x, Math.round(box.width * (1 + pad * 2)));
-        const h = Math.min(imgElement.height - y, Math.round(box.height * (1 + pad * 2)));
-
+    // Helper: Resize image to a maximum dimension of 1600px (maintaining aspect ratio)
+    async function resizeImage(imgElement, maxDim = 1600) {
+        let w = imgElement.width;
+        let h = imgElement.height;
+        if (Math.max(w, h) > maxDim) {
+            const scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+        }
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
         const ctx = canvas.getContext('2d');
-        ctx.drawImage(imgElement, x, y, w, h, 0, 0, w, h);
-
+        ctx.drawImage(imgElement, 0, 0, w, h);
         return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
     }
 
@@ -1576,6 +1574,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (useHybrid) {
             // ── HYBRID DRIVE SCAN ──
             try {
+                // Generate a single UUIDv4 for this search session
+                const uuidv4 = () => {
+                    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+                        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+                    );
+                };
+                const scanSearchId = uuidv4();
+
                 // Step 1: Ask server for the file list (lightweight)
                 document.getElementById('status-text').textContent = 'Listing folder files…';
                 const listFd = new FormData();
@@ -1595,10 +1601,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let processed = 0;
                 let totalMatched = 0;
                 let allMatchedNames = [];
-                let lastSearchId = '';
                 const BATCH_SIZE = 5;
-                let batchCrops = [];  // { blob, name }
-                let batchOriginals = []; // { blob, name } — full images for matched results
+                let batch = [];  // { blob, name } — FULL original (but resized) images that have faces
 
                 for (const file of driveFiles) {
                     if (!isScanning) break;
@@ -1615,51 +1619,50 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const imgBlob = await imgResp.blob();
                         const imgUrl = URL.createObjectURL(imgBlob);
 
-                        // Step 3: Client-side face detection
+                        // Step 3: Client-side face detection (FILTER ONLY — does this photo have a face?)
                         const imgEl = await loadImage(imgUrl);
-                        const detections = await faceapi.detectAllFaces(imgEl, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 })).withFaceLandmarks();
-
-                        URL.revokeObjectURL(imgUrl);
+                        const detections = await faceapi.detectAllFaces(imgEl, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 }));
 
                         if (detections.length === 0) {
                             // No face — skip entirely (server never sees this image!)
+                            URL.revokeObjectURL(imgUrl);
                             processed++;
                             updateScanUI(processed, totalPhotos, fileName + ' (no face)', totalMatched);
                             continue;
                         }
 
-                        // Step 4: Crop the face(s) and queue for server batch
-                        for (const det of detections) {
-                            const croppedBlob = await cropFaceFromImage(imgEl, det);
-                            if (croppedBlob) {
-                                batchCrops.push({ blob: croppedBlob, name: fileName });
-                                batchOriginals.push({ blob: imgBlob, name: fileName });
-                            }
-                        }
+                        // Step 4: Face detected! Resize the full image to max 1600px to optimize upload size
+                        const resizedBlob = await resizeImage(imgEl, 1600);
+                        URL.revokeObjectURL(imgUrl);
 
+                        batch.push({ blob: resizedBlob, name: fileName });
                         processed++;
 
-                        // Step 5: When batch is full, send to server for high-accuracy matching
-                        if (batchCrops.length >= BATCH_SIZE || processed === totalPhotos) {
-                            if (batchCrops.length > 0) {
+                        // Step 5: When batch is full, send images to server for high-accuracy dlib matching
+                        if (batch.length >= BATCH_SIZE || processed === totalPhotos) {
+                            if (batch.length > 0) {
                                 const batchFd = new FormData();
                                 batchFd.append('tolerance', tolerance);
                                 batchFd.append('model', model);
                                 batchFd.append('upsample', upsample);
                                 batchFd.append('profile_name', currentProfileName);
-                                for (const crop of batchCrops) {
-                                    batchFd.append('files', crop.blob, crop.name);
+                                batchFd.append('search_id', scanSearchId);
+                                for (const item of batch) {
+                                    batchFd.append('files', item.blob, item.name);
                                 }
 
                                 const batchResp = await fetch('/api/match-batch', { method: 'POST', body: batchFd, signal: scanAbortController.signal });
                                 if (batchResp.ok) {
                                     const result = await batchResp.json();
                                     totalMatched += result.matched_count;
-                                    allMatchedNames = allMatchedNames.concat(result.matches);
-                                    if (result.search_id) lastSearchId = result.search_id;
+                                    // Deduplicate filenames just in case
+                                    result.matches.forEach(m => {
+                                        if (!allMatchedNames.includes(m)) {
+                                            allMatchedNames.push(m);
+                                        }
+                                    });
                                 }
-                                batchCrops = [];
-                                batchOriginals = [];
+                                batch = [];
                             }
                         }
 
@@ -1687,10 +1690,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     toast('📭 No matching photos found. Try more selfies or increase tolerance.', 'warn');
                 } else {
                     toast(`🎉 Done! ${totalMatched} photo${totalMatched !== 1 ? 's' : ''} found in ${dur}`);
-                    if (lastSearchId) {
-                        // Fetch filenames from the last search for gallery
-                        showGallery(lastSearchId, allMatchedNames);
-                    }
+                    // Fetch filenames from the search session for gallery
+                    showGallery(scanSearchId, allMatchedNames);
                 }
 
             } catch (e) {

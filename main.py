@@ -558,10 +558,11 @@ async def match_batch(
     model:        str              = Form("hog"),
     upsample:     int              = Form(1),
     profile_name: str              = Form("default"),
+    search_id:    str              = Form(""),
 ):
-    """Accept a batch of pre-cropped face thumbnails from the browser.
-    Run high-accuracy dlib encoding + matching against the user's Master DNA.
-    Returns which files matched."""
+    """Accept a batch of face images from the browser.
+    Run dlib encoding + matching against the user's Master DNA.
+    Returns matches and updates the accumulated search session ZIP."""
     user    = auth.require_user(request)
     user_id = user["sub"]
 
@@ -600,11 +601,34 @@ async def match_batch(
         except Exception as exc:
             logger.warning("match-batch error for %s: %s", safe_name, exc)
 
-    # If there are matches, store them for gallery/download
-    search_id = ""
-    if matches:
+    if not search_id:
         search_id = str(uuid.uuid4())
-        zip_data = engine._build_zip([(n, match_images[n]) for n in matches])
+    else:
+        # Validate format
+        try:
+            uuid.UUID(search_id)
+        except ValueError:
+            raise HTTPException(400, "Invalid search ID format.")
+
+    if search_id in _zip_store:
+        # Accumulate to existing
+        existing_entry = _zip_store[search_id]
+        if matches:
+            existing_entry["images"].update(match_images)
+            zip_data = engine._build_zip(list(existing_entry["images"].items()))
+            existing_entry["data"] = zip_data
+            existing_entry["created_at"] = time.time()
+    else:
+        # Initialize new
+        if matches:
+            zip_data = engine._build_zip(list(match_images.items()))
+        else:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED):
+                pass
+            buf.seek(0)
+            zip_data = buf.read()
+
         _zip_store[search_id] = {
             "data": zip_data,
             "images": match_images,
