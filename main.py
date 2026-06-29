@@ -516,6 +516,8 @@ async def list_drive_files(
             detail = "Google Drive folder not found. Please verify the link and ensure it is shared publically or with your account."
         elif status_code == 403:
             detail = "Access denied to Google Drive folder. Please verify the folder's sharing permissions."
+        elif status_code == 401:
+            detail = "Your Google login session has expired. Please log out and log in again to refresh access."
         raise HTTPException(status_code=status_code, detail=detail)
     except Exception as e:
         logger.error("list-drive-files failed: %s", e)

@@ -119,7 +119,12 @@ async def login(request: Request):
     """Redirect the browser to Google's consent screen."""
     redirect_uri = _build_redirect_uri(request)
     logger.info("OAuth redirect URI: %s", redirect_uri)
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    return await oauth.google.authorize_redirect(
+        request,
+        redirect_uri,
+        access_type="offline",
+        prompt="select_account consent",
+    )
 
 
 @router.get("/callback")
