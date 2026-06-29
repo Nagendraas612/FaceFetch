@@ -551,10 +551,60 @@
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,0.3); }
+
+    /* ═══ STEALTH LOADING SCREEN ═══ */
+    #stealth-loader {
+        position: fixed; inset: 0; z-index: 999999;
+        background: #030712;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        transition: opacity 0.6s ease, visibility 0.6s ease;
+    }
+    #stealth-loader.fade-out {
+        opacity: 0; visibility: hidden;
+    }
+    .loader-icon {
+        font-size: 3.5rem; animation: pulse-glow 1.8s ease-in-out infinite;
+    }
+    .loader-title {
+        margin-top: 1.5rem; font-family: var(--font-body);
+        font-size: 1.1rem; font-weight: 700; letter-spacing: -0.01em;
+        background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .loader-sub {
+        margin-top: 0.5rem; font-family: var(--font-mono);
+        font-size: 0.7rem; color: rgba(255,255,255,0.35);
+        letter-spacing: 0.05em;
+    }
+    .loader-bar-track {
+        margin-top: 1.5rem; width: 200px; height: 3px;
+        background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden;
+    }
+    .loader-bar-fill {
+        height: 100%; width: 0%; border-radius: 4px;
+        background: linear-gradient(90deg, #38bdf8, #818cf8);
+        transition: width 0.3s ease;
+    }
+    @keyframes pulse-glow {
+        0%, 100% { transform: scale(1); filter: brightness(1); }
+        50% { transform: scale(1.08); filter: brightness(1.3) drop-shadow(0 0 20px rgba(56,189,248,0.4)); }
+    }
     </style>
 </head>
 
 <body>
+
+<!-- ═══ STEALTH LOADING SCREEN ═══ -->
+<div id="stealth-loader">
+    <div class="loader-icon">⚡</div>
+    <div class="loader-title">Initializing EventAI Engine</div>
+    <div class="loader-sub">CALIBRATING SECURE ENVIRONMENT</div>
+    <div class="loader-bar-track">
+        <div class="loader-bar-fill" id="loader-bar-fill"></div>
+    </div>
+</div>
+
 <div class="bg-fx"></div>
 <div class="scan-line" id="scan-line"></div>
 
@@ -890,15 +940,37 @@ function toast(msg, type = 'success') {
 }
 
 // ══════════════════════════════════════════════════════════
-//  FACE-API.JS LOADER (optional — gracefully degrades)
+//  FACE-API.JS LOADER — Hybrid Architecture (SSD MobileNet)
 // ══════════════════════════════════════════════════════════
 async function loadFaceApi() {
+    const loaderBar = document.getElementById('loader-bar-fill');
+    const loader = document.getElementById('stealth-loader');
     try {
-        if (typeof faceapi === 'undefined') return;
+        if (typeof faceapi === 'undefined') {
+            if (loader) loader.classList.add('fade-out');
+            return;
+        }
         const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+        if (loaderBar) loaderBar.style.width = '15%';
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+        if (loaderBar) loaderBar.style.width = '45%';
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        if (loaderBar) loaderBar.style.width = '70%';
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        if (loaderBar) loaderBar.style.width = '90%';
+        // Also load tiny detector for quick selfie validation
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        if (loaderBar) loaderBar.style.width = '100%';
         faceApiReady = true;
-    } catch(e) { console.warn('face-api models unavailable, skipping client validation', e); }
+        console.log('✓ Face-API.js Hybrid Engine ready (SSD MobileNet + Recognition)');
+    } catch(e) {
+        console.warn('face-api models unavailable, falling back to server-only mode', e);
+    } finally {
+        // Fade out loading screen after a short delay for polish
+        setTimeout(() => {
+            if (loader) loader.classList.add('fade-out');
+        }, 400);
+    }
 }
 window.addEventListener('load', loadFaceApi);
 
@@ -1391,7 +1463,61 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // ── Deep Scan
+    // ══════════════════════════════════════════════════════════
+    //  HYBRID SCAN ENGINE
+    // ══════════════════════════════════════════════════════════
+
+    // Helper: Crop face from image using face-api.js detection
+    async function cropFaceFromImage(imgElement, detection) {
+        const box = detection.detection.box;
+        // Add padding around face (30% on each side)
+        const pad = 0.3;
+        const x = Math.max(0, Math.round(box.x - box.width * pad));
+        const y = Math.max(0, Math.round(box.y - box.height * pad));
+        const w = Math.min(imgElement.width - x, Math.round(box.width * (1 + pad * 2)));
+        const h = Math.min(imgElement.height - y, Math.round(box.height * (1 + pad * 2)));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imgElement, x, y, w, h, 0, 0, w, h);
+
+        return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    }
+
+    // Helper: Load image element from blob URL
+    function loadImage(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = url;
+        });
+    }
+
+    // Helper: Update scan UI progress
+    function updateScanUI(current, total, filename, matchedCount) {
+        const pct = total > 0 ? (current / total) * 100 : 0;
+        document.getElementById('progress-bar').style.width = pct + '%';
+        document.getElementById('prog-count').textContent = `${current}/${total}`;
+        document.getElementById('status-text').textContent = filename || '';
+        document.getElementById('st-scanned').textContent = current;
+        document.getElementById('st-matched').textContent = matchedCount;
+        document.getElementById('live-ct').textContent = matchedCount;
+        const rate = current > 0 ? Math.round((matchedCount / current) * 100) : 0;
+        document.getElementById('st-rate').textContent = rate + '%';
+
+        if (current > 3) {
+            const elapsed = (Date.now() - scanStartTime) / 1000;
+            const tpp = elapsed / current;
+            const left = Math.round((total - current) * tpp);
+            const m = Math.floor(left / 60), s = left % 60;
+            document.getElementById('eta-text').textContent = `ETA: ${m}m ${s < 10 ? '0' : ''}${s}s`;
+        }
+    }
+
+    // ── Deep Scan (HYBRID: client-side detection + server-side matching)
     document.getElementById('btn-search').addEventListener('click', async () => {
         const driveUrl   = drInp.value.trim();
         const localFiles = lfi.files;
@@ -1429,7 +1555,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('mode-speed').style.opacity = '0.5';
         document.getElementById('mode-acc').disabled = true;
         document.getElementById('mode-acc').style.opacity = '0.5';
-        // ------------------------
+
         // Reset stats
         ['st-scanned','st-matched','st-rate','live-ct','prog-count'].forEach(id => {
             document.getElementById(id).textContent = id === 'st-rate' ? '0%' : (id === 'prog-count' ? '0/0' : '0');
@@ -1438,139 +1564,242 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('eta-text').textContent     = 'ETA: —';
         document.getElementById('status-text').textContent  = '';
 
-        const fd = new FormData();
-        fd.append('tolerance', slider.value);
-        fd.append('model', scanMode === 'accurate' ? 'cnn' : 'hog');
-        fd.append('upsample', scanMode === 'accurate' ? '1' : '0');
-        fd.append('profile_name', currentProfileName);
+        const tolerance = slider.value;
+        const model = scanMode === 'accurate' ? 'cnn' : 'hog';
+        const upsample = scanMode === 'accurate' ? '1' : '0';
 
-        let endpoint = '/search';
-        if (localFiles.length > 0) {
-            endpoint = '/search-local';
-            for (let i = 0; i < localFiles.length; i++) fd.append('files', localFiles[i]);
-        } else {
-            fd.append('drive_link', driveUrl);
-        }
+        // ════════════════════════════════════════════
+        // HYBRID PATH: Use client-side face detection
+        // ════════════════════════════════════════════
+        const useHybrid = faceApiReady && driveUrl && typeof faceapi !== 'undefined';
 
-        let totalPhotos = 0;
-        let liveMatches = 0;
+        if (useHybrid) {
+            // ── HYBRID DRIVE SCAN ──
+            try {
+                // Step 1: Ask server for the file list (lightweight)
+                document.getElementById('status-text').textContent = 'Listing folder files…';
+                const listFd = new FormData();
+                listFd.append('drive_link', driveUrl);
+                const listResp = await fetch('/api/list-drive-files', { method: 'POST', body: listFd, signal: scanAbortController.signal });
+                if (!listResp.ok) {
+                    const err = await listResp.text();
+                    toast('Error listing folder: ' + err.slice(0, 80), 'error');
+                    return;
+                }
+                const { files: driveFiles, total: totalPhotos } = await listResp.json();
+                if (totalPhotos === 0) {
+                    toast('📭 No supported images found in the Drive folder.', 'warn');
+                    return;
+                }
 
-        try {
-            const response = await fetch(endpoint, { method: 'POST', body: fd, signal: scanAbortController.signal });
-            if (!response.ok) {
-                const errText = await response.text();
-                toast('Server error: ' + errText.slice(0, 80), 'error');
-                return;
-            }
-            const reader  = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
+                let processed = 0;
+                let totalMatched = 0;
+                let allMatchedNames = [];
+                let lastSearchId = '';
+                const BATCH_SIZE = 5;
+                let batchCrops = [];  // { blob, name }
+                let batchOriginals = []; // { blob, name } — full images for matched results
 
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const parts = buffer.split('\n\n');
-                buffer = parts.pop(); // keep incomplete chunk
+                for (const file of driveFiles) {
+                    if (!isScanning) break;
 
-                for (const part of parts) {
-                    if (!part.startsWith('data: ')) continue;
-                    let data;
-                    try { data = JSON.parse(part.slice(6)); } catch { continue; }
+                    const fileName = file.name;
+                    const fileId = file.id;
+                    updateScanUI(processed, totalPhotos, fileName, totalMatched);
 
-                    if (data.type === 'progress') {
-                        totalPhotos = data.total;
-                        const pct   = totalPhotos > 0 ? (data.current / totalPhotos) * 100 : 0;
+                    try {
+                        // Step 2: Download image via server proxy (avoids CORS)
+                        const imgResp = await fetch(`/api/proxy-image/${fileId}`, { signal: scanAbortController.signal });
+                        if (!imgResp.ok) { processed++; continue; }
 
-                        document.getElementById('progress-bar').style.width   = pct + '%';
-                        document.getElementById('prog-count').textContent     = `${data.current}/${totalPhotos}`;
-                        document.getElementById('status-text').textContent    = data.filename || '';
-                        document.getElementById('st-scanned').textContent     = data.current;
+                        const imgBlob = await imgResp.blob();
+                        const imgUrl = URL.createObjectURL(imgBlob);
 
-                        if (data.matched !== undefined) {
-                            liveMatches = data.matched;
-                            document.getElementById('live-ct').textContent     = liveMatches;
-                            document.getElementById('st-matched').textContent  = liveMatches;
-                            const rate = data.current > 0 ? Math.round((liveMatches/data.current)*100) : 0;
-                            document.getElementById('st-rate').textContent     = rate + '%';
+                        // Step 3: Client-side face detection
+                        const imgEl = await loadImage(imgUrl);
+                        const detections = await faceapi.detectAllFaces(imgEl, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 })).withFaceLandmarks();
+
+                        URL.revokeObjectURL(imgUrl);
+
+                        if (detections.length === 0) {
+                            // No face — skip entirely (server never sees this image!)
+                            processed++;
+                            updateScanUI(processed, totalPhotos, fileName + ' (no face)', totalMatched);
+                            continue;
                         }
 
-                        // Live match preview thumbnails
-                        if (data.match_thumb && data.is_match) {
-                            mwrap.classList.remove('hidden');
-                            const img = document.createElement('img');
-                            img.className = 'match-thumb';
-                            img.src       = 'data:image/jpeg;base64,' + data.match_thumb;
-                            img.title     = data.filename;
-                            mstrip.appendChild(img);
-                            // Keep strip to last 20 thumbs
-                            while (mstrip.children.length > 20) mstrip.removeChild(mstrip.firstChild);
-                            mstrip.scrollLeft = mstrip.scrollWidth;
-                        }
-
-                        if (data.current > 5) {
-                            const elapsed = (Date.now() - scanStartTime) / 1000;
-                            const tpp     = elapsed / data.current;
-                            const left    = Math.round((totalPhotos - data.current) * tpp);
-                            const m = Math.floor(left/60), s = left%60;
-                            document.getElementById('eta-text').textContent = `ETA: ${m}m ${s<10?'0':''}${s}s`;
-                        }
-
-                    } else if (data.type === 'done') {
-                        document.getElementById('progress-bar').style.width   = '100%';
-                        document.getElementById('prog-count').textContent     = `${totalPhotos}/${totalPhotos}`;
-                        document.getElementById('st-matched').textContent     = data.matched;
-                        document.getElementById('st-scanned').textContent     = totalPhotos;
-                        const rate = totalPhotos > 0 ? Math.round((data.matched/totalPhotos)*100) : 0;
-                        document.getElementById('st-rate').textContent        = rate + '%';
-                        // Show scan duration
-                        const dur = data.duration ? `${data.duration}s` : `${((Date.now() - scanStartTime)/1000).toFixed(1)}s`;
-                        document.getElementById('eta-text').textContent       = `Done ✓ (${dur})`;
-                        scanLine.classList.remove('active');
-
-                        if (data.matched === 0) {
-                            // No matches — show friendly message, don't download
-                            const msg = data.message || 'No matching photos found. Try more selfies or increase tolerance.';
-                            toast(`📭 ${msg}`, 'warn');
-                        } else {
-                            toast(`🎉 Done! ${data.matched} photo${data.matched!==1?'s':''} found in ${dur}`);
-                            if (data.search_id) {
-                                showGallery(data.search_id, data.filenames);
+                        // Step 4: Crop the face(s) and queue for server batch
+                        for (const det of detections) {
+                            const croppedBlob = await cropFaceFromImage(imgEl, det);
+                            if (croppedBlob) {
+                                batchCrops.push({ blob: croppedBlob, name: fileName });
+                                batchOriginals.push({ blob: imgBlob, name: fileName });
                             }
                         }
 
+                        processed++;
 
-                    } else if (data.type === 'error') {
-                        toast('AI error: ' + (data.message || 'unknown'), 'error');
-                        scanLine.classList.remove('active');
+                        // Step 5: When batch is full, send to server for high-accuracy matching
+                        if (batchCrops.length >= BATCH_SIZE || processed === totalPhotos) {
+                            if (batchCrops.length > 0) {
+                                const batchFd = new FormData();
+                                batchFd.append('tolerance', tolerance);
+                                batchFd.append('model', model);
+                                batchFd.append('upsample', upsample);
+                                batchFd.append('profile_name', currentProfileName);
+                                for (const crop of batchCrops) {
+                                    batchFd.append('files', crop.blob, crop.name);
+                                }
+
+                                const batchResp = await fetch('/api/match-batch', { method: 'POST', body: batchFd, signal: scanAbortController.signal });
+                                if (batchResp.ok) {
+                                    const result = await batchResp.json();
+                                    totalMatched += result.matched_count;
+                                    allMatchedNames = allMatchedNames.concat(result.matches);
+                                    if (result.search_id) lastSearchId = result.search_id;
+                                }
+                                batchCrops = [];
+                                batchOriginals = [];
+                            }
+                        }
+
+                        updateScanUI(processed, totalPhotos, fileName, totalMatched);
+
+                    } catch (imgErr) {
+                        if (imgErr.name === 'AbortError') throw imgErr;
+                        console.warn('Hybrid scan error for', fileName, imgErr);
+                        processed++;
                     }
                 }
+
+                // Final UI update
+                document.getElementById('progress-bar').style.width = '100%';
+                document.getElementById('prog-count').textContent = `${totalPhotos}/${totalPhotos}`;
+                document.getElementById('st-scanned').textContent = totalPhotos;
+                document.getElementById('st-matched').textContent = totalMatched;
+                const rate = totalPhotos > 0 ? Math.round((totalMatched / totalPhotos) * 100) : 0;
+                document.getElementById('st-rate').textContent = rate + '%';
+                const dur = ((Date.now() - scanStartTime) / 1000).toFixed(1) + 's';
+                document.getElementById('eta-text').textContent = `Done ✓ (${dur})`;
+                scanLine.classList.remove('active');
+
+                if (totalMatched === 0) {
+                    toast('📭 No matching photos found. Try more selfies or increase tolerance.', 'warn');
+                } else {
+                    toast(`🎉 Done! ${totalMatched} photo${totalMatched !== 1 ? 's' : ''} found in ${dur}`);
+                    if (lastSearchId) {
+                        // Fetch filenames from the last search for gallery
+                        showGallery(lastSearchId, allMatchedNames);
+                    }
+                }
+
+            } catch (e) {
+                if (e.name === 'AbortError') {
+                    toast('Scan cancelled', 'warn');
+                } else {
+                    console.error('Hybrid scan failed:', e);
+                    toast('Hybrid scan error: ' + (e.message || 'unknown'), 'error');
+                }
+                scanLine.classList.remove('active');
             }
-        } catch(e) {
-            if (e.name === 'AbortError') {
-                toast('Scan cancelled', 'warn');
+
+        } else {
+            // ── FALLBACK: Original SSE server-side scan (for local files or when face-api unavailable) ──
+            const fd = new FormData();
+            fd.append('tolerance', tolerance);
+            fd.append('model', model);
+            fd.append('upsample', upsample);
+            fd.append('profile_name', currentProfileName);
+
+            let endpoint = '/search';
+            if (localFiles.length > 0) {
+                endpoint = '/search-local';
+                for (let i = 0; i < localFiles.length; i++) fd.append('files', localFiles[i]);
             } else {
-                toast('Connection failed. Is the backend running?', 'error');
+                fd.append('drive_link', driveUrl);
             }
-            scanLine.classList.remove('active');
-        } finally {
-            isScanning = false;
-            btnScan.disabled    = false;
-            btnScan.textContent = 'Start Deep Search';
-            btnCancel.classList.add('hidden');
-            
-            // Unlock all inputs
-            drInp.disabled = false;
-            drInp.style.opacity = '1';
-            document.getElementById('local-trigger').style.pointerEvents = 'auto';
-            document.getElementById('local-trigger').style.opacity = '1';
-            slider.disabled = false;
-            slider.style.opacity = '1';
-            document.getElementById('mode-speed').disabled = false;
-            document.getElementById('mode-speed').style.opacity = '1';
-            document.getElementById('mode-acc').disabled = false;
-            document.getElementById('mode-acc').style.opacity = '1';
+
+            let totalPhotos = 0;
+            let liveMatches = 0;
+
+            try {
+                const response = await fetch(endpoint, { method: 'POST', body: fd, signal: scanAbortController.signal });
+                if (!response.ok) {
+                    const errText = await response.text();
+                    toast('Server error: ' + errText.slice(0, 80), 'error');
+                    return;
+                }
+                const reader  = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop();
+
+                    for (const part of parts) {
+                        if (!part.startsWith('data: ')) continue;
+                        let data;
+                        try { data = JSON.parse(part.slice(6)); } catch { continue; }
+
+                        if (data.type === 'progress') {
+                            totalPhotos = data.total;
+                            updateScanUI(data.current, totalPhotos, data.filename, data.matched || liveMatches);
+                            if (data.matched !== undefined) liveMatches = data.matched;
+                        } else if (data.type === 'done') {
+                            document.getElementById('progress-bar').style.width = '100%';
+                            document.getElementById('prog-count').textContent = `${totalPhotos}/${totalPhotos}`;
+                            document.getElementById('st-matched').textContent = data.matched;
+                            document.getElementById('st-scanned').textContent = totalPhotos;
+                            const rate = totalPhotos > 0 ? Math.round((data.matched/totalPhotos)*100) : 0;
+                            document.getElementById('st-rate').textContent = rate + '%';
+                            const dur = data.duration ? `${data.duration}s` : `${((Date.now() - scanStartTime)/1000).toFixed(1)}s`;
+                            document.getElementById('eta-text').textContent = `Done ✓ (${dur})`;
+                            scanLine.classList.remove('active');
+
+                            if (data.matched === 0) {
+                                const msg = data.message || 'No matching photos found. Try more selfies or increase tolerance.';
+                                toast(`📭 ${msg}`, 'warn');
+                            } else {
+                                toast(`🎉 Done! ${data.matched} photo${data.matched!==1?'s':''} found in ${dur}`);
+                                if (data.search_id) showGallery(data.search_id, data.filenames);
+                            }
+                        } else if (data.type === 'error') {
+                            toast('AI error: ' + (data.message || 'unknown'), 'error');
+                            scanLine.classList.remove('active');
+                        }
+                    }
+                }
+            } catch(e) {
+                if (e.name === 'AbortError') {
+                    toast('Scan cancelled', 'warn');
+                } else {
+                    toast('Connection failed. Is the backend running?', 'error');
+                }
+                scanLine.classList.remove('active');
+            }
         }
+
+        // ── Cleanup (runs for both hybrid and fallback paths)
+        isScanning = false;
+        btnScan.disabled    = false;
+        btnScan.textContent = 'Start Deep Search';
+        btnCancel.classList.add('hidden');
+
+        // Unlock all inputs
+        drInp.disabled = false;
+        drInp.style.opacity = '1';
+        document.getElementById('local-trigger').style.pointerEvents = 'auto';
+        document.getElementById('local-trigger').style.opacity = '1';
+        slider.disabled = false;
+        slider.style.opacity = '1';
+        document.getElementById('mode-speed').disabled = false;
+        document.getElementById('mode-speed').style.opacity = '1';
+        document.getElementById('mode-acc').disabled = false;
+        document.getElementById('mode-acc').style.opacity = '1';
     });
 
     // ── Handle OAuth error from redirect

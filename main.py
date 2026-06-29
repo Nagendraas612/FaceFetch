@@ -247,10 +247,11 @@ async def add_security_headers(request: Request, call_next):
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://fonts.googleapis.com https://apis.google.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
-            "img-src 'self' data: https:; "
+            "img-src 'self' data: blob: https:; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://content.googleapis.com; "
+            "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://content.googleapis.com https://cdn.jsdelivr.net; "
             "frame-src 'self' https://docs.google.com https://accounts.google.com; "
+            "worker-src 'self' blob:; "
             "frame-ancestors 'none'"
         )
     return response
@@ -465,6 +466,158 @@ def _validate_drive_link(drive_link: str):
     # Prevent injection attempts
     if any(char in drive_link for char in ["<", ">", "\"", "'", ";", "(", ")", "{"]):
         raise HTTPException(400, "Invalid characters in Drive link.")
+
+
+# ── Hybrid Architecture: Lightweight endpoints ───────────────────────────────
+
+@app.post("/api/list-drive-files")
+async def list_drive_files(
+    request:    Request,
+    drive_link: str = Form(...),
+):
+    """Return a JSON list of image file IDs/names from a Google Drive folder.
+    The browser will use this list to download images client-side."""
+    user    = auth.require_user(request)
+    user_id = user["sub"]
+
+    _check_rate_limit(_scan_rate, user_id, RATE_LIMIT_SCANS_PER_HOUR, 3600)
+    _validate_drive_link(drive_link)
+
+    drv_token     = request.session.get("drive_token", "")
+    refresh_token = await database.get_refresh_token(user_id)
+
+    if not drv_token and not refresh_token and not engine.GOOGLE_API_KEY:
+        raise HTTPException(
+            401,
+            "No valid Google credentials. Log in with Google for private folders, "
+            "or add GOOGLE_API_KEY to .env for public folders.",
+        )
+
+    try:
+        token_state = {
+            "access_token": drv_token,
+            "refresh_token": refresh_token or "",
+        }
+        if (drv_token in ("", "mock_drive_token") and
+            refresh_token in ("", "mock_refresh_token", None) and
+            engine.GOOGLE_API_KEY):
+            token_state["_use_api_key"] = True
+
+        folder_id = engine._folder_id_from_link(drive_link)
+        files = list(engine._list_drive_files(folder_id, token_state))
+        return {"files": files, "total": len(files)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("list-drive-files failed: %s", e)
+        raise HTTPException(500, "Failed to list Drive folder files.")
+
+
+@app.get("/api/proxy-image/{file_id}")
+async def proxy_image(file_id: str, request: Request):
+    """Proxy-download a single image from Google Drive for the browser.
+    This avoids CORS issues when the browser tries to fetch Drive images directly."""
+    user    = auth.require_user(request)
+    user_id = user["sub"]
+
+    # Validate file_id format (alphanumeric + dashes/underscores)
+    if not re.match(r"^[a-zA-Z0-9_-]{10,80}$", file_id):
+        raise HTTPException(400, "Invalid file ID format.")
+
+    drv_token     = request.session.get("drive_token", "")
+    refresh_token = await database.get_refresh_token(user_id)
+
+    token_state = {
+        "access_token": drv_token,
+        "refresh_token": refresh_token or "",
+    }
+    if (drv_token in ("", "mock_drive_token") and
+        refresh_token in ("", "mock_refresh_token", None) and
+        engine.GOOGLE_API_KEY):
+        token_state["_use_api_key"] = True
+
+    img_bytes = await asyncio.get_running_loop().run_in_executor(
+        None, engine._download_image_bytes, file_id, token_state
+    )
+
+    if not img_bytes:
+        raise HTTPException(404, "Image not found or download failed.")
+
+    return Response(
+        content=img_bytes,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.post("/api/match-batch")
+async def match_batch(
+    request:      Request,
+    files:        list[UploadFile] = File(...),
+    tolerance:    float            = Form(0.50),
+    model:        str              = Form("hog"),
+    upsample:     int              = Form(1),
+    profile_name: str              = Form("default"),
+):
+    """Accept a batch of pre-cropped face thumbnails from the browser.
+    Run high-accuracy dlib encoding + matching against the user's Master DNA.
+    Returns which files matched."""
+    user    = auth.require_user(request)
+    user_id = user["sub"]
+
+    tolerance, model, upsample = _validate_scan_params(tolerance, model, upsample)
+
+    if len(files) > 50:
+        raise HTTPException(400, "Too many files in batch. Maximum is 50.")
+
+    known_encodings = await database.load_face_encodings(user_id, profile_name)
+    if not known_encodings:
+        raise HTTPException(400, f"No reference face found for profile '{profile_name}'. Upload a selfie first.")
+
+    master_dna = engine.prepare_encodings(known_encodings)
+    if not master_dna:
+        raise HTTPException(400, "Could not prepare reference encodings.")
+
+    matches = []
+    match_images = {}
+
+    for f in files:
+        img_bytes = await f.read()
+        if not img_bytes or len(img_bytes) > MAX_UPLOAD_SIZE:
+            continue
+
+        safe_name = _sanitize_filename(f.filename or "unknown.jpg")
+
+        try:
+            result_name, result_bytes, _ = await asyncio.get_running_loop().run_in_executor(
+                None,
+                engine._process_image_bytes,
+                safe_name, img_bytes, master_dna, tolerance, model, upsample,
+            )
+            if result_bytes:
+                matches.append(safe_name)
+                match_images[safe_name] = result_bytes
+        except Exception as exc:
+            logger.warning("match-batch error for %s: %s", safe_name, exc)
+
+    # If there are matches, store them for gallery/download
+    search_id = ""
+    if matches:
+        search_id = str(uuid.uuid4())
+        zip_data = engine._build_zip([(n, match_images[n]) for n in matches])
+        _zip_store[search_id] = {
+            "data": zip_data,
+            "images": match_images,
+            "created_at": time.time(),
+        }
+        _user_zip_access[search_id] = user_id
+
+    return {
+        "matches": matches,
+        "matched_count": len(matches),
+        "search_id": search_id,
+        "total_processed": len(files),
+    }
 
 
 # ── SSE helper ────────────────────────────────────────────────────────────────
