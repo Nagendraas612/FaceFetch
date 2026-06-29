@@ -238,7 +238,7 @@ def _folder_id_from_link(drive_link: str) -> str:
         r"[?&]id=([a-zA-Z0-9_-]{10,50})",    # Limited length
     ]
     for pat in patterns:
-        m = re.search(pat, drive_link, timeout=1)  # Timeout protection
+        m = re.search(pat, drive_link)  # ReDoS safe via length limits
         if m:
             return m.group(1)
     raise ValueError(f"Cannot extract folder ID from link")
