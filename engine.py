@@ -539,7 +539,7 @@ def _process_image_bytes(
     tolerance: float,
     model_type: str,
     upsample: int,
-) -> tuple[str, bytes | None]:
+) -> tuple[str, bytes | None, list[list[float]]]:
     try:
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
@@ -573,7 +573,7 @@ def _process_image_bytes(
         if not locations:
             logger.info("✗ No face detected: %s", filename)
             img.close()
-            return filename, None
+            return filename, None, []
 
         candidate_encodings = face_recognition.face_encodings(
             img_clahe,
@@ -585,7 +585,7 @@ def _process_image_bytes(
         if not candidate_encodings:
             logger.info("✗ Face encoding failed: %s", filename)
             img.close()
-            return filename, None
+            return filename, None, []
 
         found_match = False
         best_distance = float("inf")
