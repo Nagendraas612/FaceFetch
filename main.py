@@ -1012,8 +1012,18 @@ async def get_result_image(search_id: str, filename: str, request: Request):
     return Response(content=img_bytes, media_type=media_type)
 
 
+from pydantic import BaseModel
+
+class DownloadSelectedPayload(BaseModel):
+    filenames: list[str]
+
+
 @app.post("/download-selected/{search_id}")
-async def download_selected(search_id: str, request: Request, payload: dict = None):
+async def download_selected(
+    search_id: str,
+    request:   Request,
+    payload:   DownloadSelectedPayload,
+):
     """Download a subset of matched photos as a ZIP."""
     user = auth.require_user(request)
     user_id = user["sub"]
@@ -1031,7 +1041,7 @@ async def download_selected(search_id: str, request: Request, payload: dict = No
     if not entry or "images" not in entry:
         raise HTTPException(404, "Search results expired or not found.")
 
-    filenames = (payload or {}).get("filenames", [])
+    filenames = payload.filenames
     if not filenames:
         raise HTTPException(400, "No filenames provided.")
 

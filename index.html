@@ -1554,7 +1554,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const tolerance = slider.value;
         const model = scanMode === 'accurate' ? 'cnn' : 'hog';
-        const upsample = scanMode === 'accurate' ? '1' : '0';
+        const upsample = 1;
 
         // ════════════════════════════════════════════
         // HYBRID PATH: Use client-side face detection
