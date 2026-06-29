@@ -1,11 +1,3 @@
----
-title: FaceFetch
-emoji: ⚡
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-pinned: false
----
 
 # ⚡ EventAI | Deep Face Search Engine
 
