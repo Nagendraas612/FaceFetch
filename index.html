@@ -1659,7 +1659,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         updateScanUI(processed, totalPhotos, fileName, totalMatched);
 
                     } catch (imgErr) {
-                        if (imgErr.name === 'AbortError') throw imgErr;
+                        if (imgErr.name === 'AbortError' || !isScanning) throw imgErr;
                         console.warn('Hybrid scan error for', fileName, imgErr);
                         processed++;
                     }
@@ -1852,9 +1852,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Cancel scan function
 function cancelScan() {
+    isScanning = false;
     if (scanAbortController) {
         scanAbortController.abort();
-        scanAbortController = null;
     }
 }
 </script>
