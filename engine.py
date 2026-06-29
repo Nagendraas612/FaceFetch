@@ -20,6 +20,16 @@ import requests
 import face_recognition
 from PIL import Image
 
+try:
+    import cv2
+except ImportError:
+    pass
+
+try:
+    from sklearn.cluster import DBSCAN
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -377,6 +387,19 @@ def encode_reference_image(
         img.thumbnail((REF_MAX_SIZE, REF_MAX_SIZE), Image.Resampling.LANCZOS)
 
     arr = np.array(img)
+
+    # ── Quality Gateway: Blur Detection ──
+    try:
+        if 'cv2' in globals():
+            gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+            blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+            if blur_score < 40.0:
+                raise ValueError(f"Image is too blurry (Blur score: {blur_score:.1f}). Please upload a clearer, well-lit selfie.")
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise
+        logger.debug("Blur detection skipped: %s", exc)
+
     arr_clahe = _apply_clahe(arr)
 
     locations = face_recognition.face_locations(arr_clahe, model="hog")
@@ -470,6 +493,29 @@ def prepare_encodings(known_encodings: list) -> list[np.ndarray]:
     if len(np_encodings) == 1:
         logger.info("✓ Using single reference encoding")
         return np_encodings
+
+    # ── DBSCAN Clustering for Outlier Rejection ──
+    try:
+        if 'DBSCAN' in globals() and len(np_encodings) >= 3:
+            clustering = DBSCAN(eps=0.45, min_samples=2, metric='euclidean').fit(np_encodings)
+            labels = clustering.labels_
+            if len(set(labels)) > 1 or (len(set(labels)) == 1 and list(labels)[0] == -1):
+                unique_labels = set(labels)
+                largest_cluster = -1
+                max_count = 0
+                for label in unique_labels:
+                    if label != -1:
+                        count = list(labels).count(label)
+                        if count > max_count:
+                            max_count = count
+                            largest_cluster = label
+                
+                if largest_cluster != -1:
+                    filtered_encodings = [enc for enc, label in zip(np_encodings, labels) if label == largest_cluster]
+                    logger.info("✓ DBSCAN rejected %d outlier faces (kept %d)", len(np_encodings) - len(filtered_encodings), len(filtered_encodings))
+                    np_encodings = filtered_encodings
+    except Exception as exc:
+        logger.warning("DBSCAN clustering failed: %s", exc)
 
     avg_encoding = np.mean(np_encodings, axis=0)
     norm = np.linalg.norm(avg_encoding)
