@@ -760,16 +760,11 @@
                 </div>
                 <p style="font-size:0.8rem;color:var(--muted);margin-bottom:1.5rem;line-height:1.6;">Scan an entire event album. AI analyzes matches and serves your photos.</p>
 
-                <!-- Speed / Accuracy Toggle -->
-                <p class="label" style="margin-bottom:0.6rem;">Scan Mode</p>
+                <!-- Scan mode locked to HOG for Free Tier -->
                 <div class="mode-toggle" style="margin-bottom:1.5rem;">
-                    <button id="mode-speed" class="mode-btn active-speed" onclick="setMode('speed')">
+                    <button id="mode-speed" class="mode-btn active-speed" style="cursor:default; width: 100%;">
                         ⚡ Fast Scan<br>
-                        <span style="font-weight:400;font-size:0.65rem;opacity:0.7;">HOG Model · ~0.1s/photo</span>
-                    </button>
-                    <button id="mode-acc" class="mode-btn" onclick="setMode('accurate')">
-                        🎯 Accurate Scan<br>
-                        <span style="font-weight:400;font-size:0.65rem;opacity:0.7;">CNN Model · ~1s/photo</span>
+                        <span style="font-weight:400;font-size:0.65rem;opacity:0.7;">HOG Model · Optimized for Free Tier</span>
                     </button>
                 </div>
 
@@ -1578,7 +1573,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('status-text').textContent  = '';
 
         const tolerance = slider.value;
-        const model = scanMode === 'accurate' ? 'cnn' : 'hog';
+        const model = 'hog'; // CNN disabled on Free Tier due to Memory Limits
         const upsample = 1;
 
         // ════════════════════════════════════════════
