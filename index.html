@@ -1250,6 +1250,73 @@ function pickerCallback(data) {
 // ══════════════════════════════════════════════════════════
 //  RESULTS GALLERY & LIGHTBOX
 // ══════════════════════════════════════════════════════════
+function appendMatchToGallery(searchId, name) {
+    currentSearchId = searchId;
+    if (!currentMatchedFiles.includes(name)) {
+        currentMatchedFiles.push(name);
+    }
+    
+    const container = document.getElementById('results-gallery-container');
+    const grid = document.getElementById('gallery-grid');
+    
+    if (container.classList.contains('hidden')) {
+        container.classList.remove('hidden');
+    }
+    
+    const existing = grid.querySelector(`[data-filename="${name}"]`);
+    if (existing) return;
+    
+    const item = document.createElement('div');
+    item.className = 'gallery-item';
+    item.setAttribute('data-filename', name);
+    
+    const imgUrl = `/result-image/${searchId}/${encodeURIComponent(name)}`;
+    
+    const img = document.createElement('img');
+    img.src = imgUrl;
+    img.className = 'gallery-img';
+    img.onclick = (e) => {
+        if (e.target.tagName !== 'INPUT' && !e.target.closest('.gallery-dl-btn')) {
+            openLightbox(imgUrl, name);
+        }
+    };
+    
+    const cbContainer = document.createElement('div');
+    cbContainer.className = 'gallery-cb-wrap';
+    
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = name;
+    cb.checked = true;
+    cb.className = 'gallery-cb';
+    cbContainer.appendChild(cb);
+    
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'gallery-dl-btn';
+    dlBtn.innerHTML = '📥';
+    dlBtn.title = 'Download photo';
+    dlBtn.onclick = (e) => {
+        e.stopPropagation();
+        const a = document.createElement('a');
+        a.href = imgUrl;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+    
+    const lbl = document.createElement('div');
+    lbl.className = 'gallery-lbl';
+    lbl.textContent = name;
+    lbl.title = name;
+
+    item.appendChild(img);
+    item.appendChild(cbContainer);
+    item.appendChild(dlBtn);
+    item.appendChild(lbl);
+    grid.appendChild(item);
+}
+
 function showGallery(searchId, filenames) {
     currentSearchId = searchId;
     currentMatchedFiles = filenames || [];
@@ -1259,57 +1326,7 @@ function showGallery(searchId, filenames) {
     grid.innerHTML = '';
     
     currentMatchedFiles.forEach(name => {
-        const item = document.createElement('div');
-        item.className = 'gallery-item';
-        
-        const imgUrl = `/result-image/${searchId}/${encodeURIComponent(name)}`;
-        
-        const img = document.createElement('img');
-        img.src = imgUrl;
-        img.className = 'gallery-img';
-        img.onclick = (e) => {
-            if (e.target.tagName !== 'INPUT' && !e.target.closest('.gallery-dl-btn')) {
-                openLightbox(imgUrl, name);
-            }
-        };
-        
-        // Selection Checkbox Overlay
-        const cbContainer = document.createElement('div');
-        cbContainer.className = 'gallery-cb-wrap';
-        
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = name;
-        cb.checked = true; // default select all
-        cb.className = 'gallery-cb';
-        cbContainer.appendChild(cb);
-        
-        // Individual Download Button
-        const dlBtn = document.createElement('button');
-        dlBtn.className = 'gallery-dl-btn';
-        dlBtn.innerHTML = '📥';
-        dlBtn.title = 'Download photo';
-        dlBtn.onclick = (e) => {
-            e.stopPropagation();
-            const a = document.createElement('a');
-            a.href = imgUrl;
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        };
-        
-        // Name Label Overlay
-        const lbl = document.createElement('div');
-        lbl.className = 'gallery-lbl';
-        lbl.textContent = name;
-        lbl.title = name;
-
-        item.appendChild(img);
-        item.appendChild(cbContainer);
-        item.appendChild(dlBtn);
-        item.appendChild(lbl);
-        grid.appendChild(item);
+        appendMatchToGallery(searchId, name);
     });
     
     container.classList.remove('hidden');
@@ -1645,12 +1662,27 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 if (batchResp.ok) {
                                     const result = await batchResp.json();
                                     totalMatched += result.matched_count;
-                                    // Deduplicate filenames just in case
                                     result.matches.forEach(m => {
                                         if (!allMatchedNames.includes(m)) {
                                             allMatchedNames.push(m);
+                                            
+                                            // Show live preview strip and append thumbnail
+                                            mwrap.classList.remove('hidden');
+                                            const thumb = document.createElement('img');
+                                            const imgUrl = `/result-image/${scanSearchId}/${encodeURIComponent(m)}`;
+                                            thumb.src = imgUrl;
+                                            thumb.className = 'match-thumb';
+                                            thumb.title = m;
+                                            thumb.onclick = () => openLightbox(imgUrl, m);
+                                            mstrip.appendChild(thumb);
+                                            
+                                            // Append to main results gallery grid immediately
+                                            appendMatchToGallery(scanSearchId, m);
                                         }
                                     });
+                                } else {
+                                    const errText = await batchResp.text();
+                                    console.warn('Batch matching failed:', errText);
                                 }
                                 batch = [];
                             }
