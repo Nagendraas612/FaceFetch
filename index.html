@@ -908,6 +908,7 @@ let isScanning      = false;
 let currentProfileName = 'default';
 let currentSearchId = null;
 let currentMatchedFiles = [];
+let matchedFileMap = {};  // filename -> Drive fileId (for proxy-image downloads)
 let googleClientId = null;
 let pickerApiLoaded = false;
 let gapiToken = null;
@@ -1251,10 +1252,13 @@ function pickerCallback(data) {
 // ══════════════════════════════════════════════════════════
 //  RESULTS GALLERY & LIGHTBOX
 // ══════════════════════════════════════════════════════════
-function appendMatchToGallery(searchId, name) {
+function appendMatchToGallery(searchId, name, fileId) {
     currentSearchId = searchId;
     if (!currentMatchedFiles.includes(name)) {
         currentMatchedFiles.push(name);
+    }
+    if (fileId) {
+        matchedFileMap[name] = fileId;
     }
     
     const container = document.getElementById('results-gallery-container');
@@ -1271,7 +1275,10 @@ function appendMatchToGallery(searchId, name) {
     item.className = 'gallery-item';
     item.setAttribute('data-filename', name);
     
-    const imgUrl = `/result-image/${searchId}/${encodeURIComponent(name)}`;
+    // Use proxy-image (Google Drive) if fileId is available, else fall back to result-image (disk)
+    const imgUrl = fileId
+        ? `/api/proxy-image/${fileId}`
+        : `/result-image/${searchId}/${encodeURIComponent(name)}`;
     
     const img = document.createElement('img');
     img.src = imgUrl;
@@ -1659,7 +1666,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                     batchFd.append('files', item.blob, item.name);
                                 }
 
-                                const batchResp = await fetch('/api/match-batch', { method: 'POST', body: batchFd, signal: scanAbortController.signal });
+                const batchResp = await fetch('/api/match-batch', { method: 'POST', body: batchFd, signal: scanAbortController.signal });
                                 if (batchResp.ok) {
                                     const result = await batchResp.json();
                                     totalMatched += result.matched_count;
@@ -1667,10 +1674,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                                         if (!allMatchedNames.includes(m)) {
                                             allMatchedNames.push(m);
                                             
+                                            // Find the Drive fileId for this matched filename
+                                            const matchedFile = driveFiles.find(f => f.name === m);
+                                            const matchedFileId = matchedFile ? matchedFile.id : null;
+                                            if (matchedFileId) matchedFileMap[m] = matchedFileId;
+                                            
+                                            // Use proxy-image URL (fetches from Google Drive, not disk)
+                                            const imgUrl = matchedFileId
+                                                ? `/api/proxy-image/${matchedFileId}`
+                                                : `/result-image/${scanSearchId}/${encodeURIComponent(m)}`;
+                                            
                                             // Show live preview strip and append thumbnail
                                             mwrap.classList.remove('hidden');
                                             const thumb = document.createElement('img');
-                                            const imgUrl = `/result-image/${scanSearchId}/${encodeURIComponent(m)}`;
                                             thumb.src = imgUrl;
                                             thumb.className = 'match-thumb';
                                             thumb.title = m;
@@ -1678,7 +1694,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                             mstrip.appendChild(thumb);
                                             
                                             // Append to main results gallery grid immediately
-                                            appendMatchToGallery(scanSearchId, m);
+                                            appendMatchToGallery(scanSearchId, m, matchedFileId);
                                         }
                                     });
                                 } else {
@@ -1835,7 +1851,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-deselect-all').addEventListener('click', () => {
         document.querySelectorAll('#gallery-grid input[type="checkbox"]').forEach(cb => cb.checked = false);
     });
-    // ── Client-side ZIP download (no server disk dependency) ──
+    // ── Client-side ZIP download (fetches from Google Drive via proxy, no disk dependency) ──
     async function buildAndDownloadZip(filenames, buttonEl, zipName) {
         if (!filenames || filenames.length === 0) {
             return toast('⚠ No photos to download', 'error');
@@ -1848,10 +1864,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             const zip = new JSZip();
             let done = 0;
 
-            // Fetch each image blob from the gallery image URLs and add to ZIP
             for (const name of filenames) {
                 try {
-                    const imgUrl = `/result-image/${currentSearchId}/${encodeURIComponent(name)}`;
+                    // Use proxy-image (Google Drive) if fileId exists, else fall back to result-image (disk)
+                    const fileId = matchedFileMap[name];
+                    const imgUrl = fileId
+                        ? `/api/proxy-image/${fileId}`
+                        : `/result-image/${currentSearchId}/${encodeURIComponent(name)}`;
                     const resp = await fetch(imgUrl);
                     if (resp.ok) {
                         const blob = await resp.blob();
