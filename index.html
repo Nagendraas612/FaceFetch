@@ -12,6 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
     <style>
     /* ═══════════════════════════════════════
@@ -1834,12 +1835,67 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-deselect-all').addEventListener('click', () => {
         document.querySelectorAll('#gallery-grid input[type="checkbox"]').forEach(cb => cb.checked = false);
     });
-    document.getElementById('btn-download-all').addEventListener('click', () => {
-        if (currentSearchId) {
-            window.location.href = `/download/${currentSearchId}`;
+    // ── Client-side ZIP download (no server disk dependency) ──
+    async function buildAndDownloadZip(filenames, buttonEl, zipName) {
+        if (!filenames || filenames.length === 0) {
+            return toast('⚠ No photos to download', 'error');
         }
+        const origText = buttonEl.textContent;
+        buttonEl.disabled = true;
+        buttonEl.textContent = `Downloading 0/${filenames.length}...`;
+
+        try {
+            const zip = new JSZip();
+            let done = 0;
+
+            // Fetch each image blob from the gallery image URLs and add to ZIP
+            for (const name of filenames) {
+                try {
+                    const imgUrl = `/result-image/${currentSearchId}/${encodeURIComponent(name)}`;
+                    const resp = await fetch(imgUrl);
+                    if (resp.ok) {
+                        const blob = await resp.blob();
+                        zip.file(name, blob);
+                    }
+                } catch (e) {
+                    console.warn('Failed to fetch image for ZIP:', name, e);
+                }
+                done++;
+                buttonEl.textContent = `Downloading ${done}/${filenames.length}...`;
+            }
+
+            if (Object.keys(zip.files).length === 0) {
+                toast('⚠ Could not fetch any images. Try again.', 'error');
+                return;
+            }
+
+            buttonEl.textContent = 'Creating ZIP...';
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = zipName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            toast(`✓ Downloaded ${Object.keys(zip.files).length} photo(s)`);
+        } catch (e) {
+            console.error('ZIP download error:', e);
+            toast('Error creating ZIP download', 'error');
+        } finally {
+            buttonEl.disabled = false;
+            buttonEl.textContent = origText;
+        }
+    }
+
+    document.getElementById('btn-download-all').addEventListener('click', () => {
+        if (!currentSearchId || currentMatchedFiles.length === 0) return;
+        const btn = document.getElementById('btn-download-all');
+        buildAndDownloadZip(currentMatchedFiles, btn, `facefetch_all_${currentSearchId.slice(0, 8)}.zip`);
     });
-    document.getElementById('btn-download-selected').addEventListener('click', async () => {
+
+    document.getElementById('btn-download-selected').addEventListener('click', () => {
         if (!currentSearchId) return;
         const selected = [];
         document.querySelectorAll('#gallery-grid input[type="checkbox"]:checked').forEach(cb => {
@@ -1848,37 +1904,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (selected.length === 0) {
             return toast('⚠ Select at least one photo to download', 'error');
         }
-        
         const btn = document.getElementById('btn-download-selected');
-        btn.disabled = true;
-        btn.textContent = 'Downloading...';
-        
-        try {
-            const resp = await fetch(`/download-selected/${currentSearchId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filenames: selected })
-            });
-            if (resp.ok) {
-                const blob = await resp.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `facefetch_selected_${currentSearchId.slice(0, 8)}.zip`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-                toast(`✓ Downloaded ${selected.length} photo(s)`);
-            } else {
-                toast('Error creating custom ZIP download', 'error');
-            }
-        } catch (e) {
-            toast('Network error during download', 'error');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Download Selected (ZIP)';
-        }
+        buildAndDownloadZip(selected, btn, `facefetch_selected_${currentSearchId.slice(0, 8)}.zip`);
     });
 });
 
