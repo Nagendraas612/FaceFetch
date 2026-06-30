@@ -145,31 +145,6 @@ def _check_rate_limit(
 
 
 # ── ZIP store helpers (Disk-Backed) ───────────────────────────────────────────
-def _build_zip_on_disk(search_dir: Path):
-    zip_path = search_dir / "matches.zip"
-    images = []
-    if search_dir.exists():
-        for p in search_dir.iterdir():
-            if p.name not in ("metadata.json", "matches.zip") and not p.name.startswith("custom_") and p.is_file():
-                images.append(p)
-    
-    temp_zip = search_dir / "matches.zip.tmp"
-    seen: dict[str, int] = {}
-    with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-        for img_path in images:
-            name = img_path.name
-            if name in seen:
-                seen[name] += 1
-                base, _, ext = name.rpartition(".")
-                unique_name = f"{base}_{seen[name]}.{ext}" if ext else f"{name}_{seen[name]}"
-            else:
-                seen[name] = 0
-                unique_name = name
-            zf.write(img_path, arcname=unique_name)
-            
-    if temp_zip.exists():
-        temp_zip.replace(zip_path)
-
 
 def _save_search_zip_to_disk(search_id: str, user_id: str, zip_bytes: bytes) -> list[str]:
     search_dir = RESULTS_DIR / search_id
@@ -741,14 +716,7 @@ async def match_batch(
             with open(search_dir / safe_fname, "wb") as f_img:
                 f_img.write(fbytes)
 
-        await asyncio.get_running_loop().run_in_executor(
-            None, _build_zip_on_disk, search_dir
-        )
-    else:
-        zip_path = search_dir / "matches.zip"
-        if not zip_path.exists():
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                pass
+
 
     return {
         "matches": matches,
@@ -1020,8 +988,12 @@ async def search_local(
 
 # ── ZIP download ──────────────────────────────────────────────────────────────
 @app.get("/download/{search_id}")
-async def download_zip(search_id: str, request: Request):
-    """Download matched photos ZIP with security checks."""
+async def download_zip(
+    search_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """Download matched photos ZIP with security checks (Generated On-Demand)."""
     user = auth.require_user(request)
     user_id = user["sub"]
     
@@ -1034,15 +1006,14 @@ async def download_zip(search_id: str, request: Request):
     except ValueError:
         raise HTTPException(400, "Invalid search ID format.")
 
-    # Check if ZIP exists
+    # Check if search directory exists
     search_dir = RESULTS_DIR / search_id
-    zip_path = search_dir / "matches.zip"
     metadata_path = search_dir / "metadata.json"
 
-    if not search_dir.exists() or not zip_path.exists() or not metadata_path.exists():
+    if not search_dir.exists() or not metadata_path.exists():
         raise HTTPException(
             404,
-            "ZIP not found or expired. Results are kept for 30 minutes after scanning.",
+            "Search results not found or expired. Results are kept for 30 minutes after scanning.",
         )
 
     # Authorization check: verify user owns this search result
@@ -1061,17 +1032,48 @@ async def download_zip(search_id: str, request: Request):
     except Exception:
         raise HTTPException(403, "Access denied.")
 
-    # ZIP bomb protection: check file size
-    zip_size = zip_path.stat().st_size
-    if zip_size > MAX_ZIP_SIZE:
-        logger.error("🚨 Potential ZIP bomb detected: %d bytes", zip_size)
-        raise HTTPException(413, "ZIP file too large. This might indicate a problem.")
+    temp_zip_name = f"full_{uuid.uuid4().hex}.zip"
+    temp_zip_path = search_dir / temp_zip_name
+
+    def _build_full_zip():
+        images = []
+        for p in search_dir.iterdir():
+            if p.name not in ("metadata.json", "matches.zip") and not p.name.startswith("custom_") and not p.name.startswith("full_") and p.is_file():
+                images.append(p)
+                
+        seen: dict[str, int] = {}
+        with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+            if not images:
+                # Create empty ZIP to prevent error if no images match but they hit download
+                pass
+            for img_path in images:
+                name = img_path.name
+                if name in seen:
+                    seen[name] += 1
+                    base, _, ext = name.rpartition(".")
+                    unique_name = f"{base}_{seen[name]}.{ext}" if ext else f"{name}_{seen[name]}"
+                else:
+                    seen[name] = 0
+                    unique_name = name
+                zf.write(img_path, arcname=unique_name)
+
+    await asyncio.get_running_loop().run_in_executor(None, _build_full_zip)
+
+    def _cleanup_temp_zip(path: Path):
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception as e:
+            logger.error("Error cleaning up zip: %s", e)
+
+    # Register the cleanup task to delete the zip immediately after serving
+    background_tasks.add_task(_cleanup_temp_zip, temp_zip_path)
     
     filename = f"facefetch_matches_{search_id[:8]}.zip"
     safe_filename = _sanitize_filename(filename)
 
     return FileResponse(
-        path=str(zip_path),
+        path=str(temp_zip_path),
         filename=safe_filename,
         media_type="application/octet-stream",
         headers={
