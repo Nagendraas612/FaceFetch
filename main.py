@@ -699,27 +699,17 @@ async def match_batch(
 
     if not search_id:
         search_id = str(uuid.uuid4())
-        search_dir = RESULTS_DIR / search_id
-        search_dir.mkdir(parents=True, exist_ok=True)
-        # Create metadata
-        metadata = {
-            "owner_id": user_id,
-            "created_at": time.time()
-        }
-        with open(search_dir / "metadata.json", "w") as f_meta:
-            json.dump(metadata, f_meta)
-    else:
-        # Validate format
-        try:
-            uuid.UUID(search_id)
-        except ValueError:
-            raise HTTPException(400, "Invalid search ID format.")
 
-        search_dir = RESULTS_DIR / search_id
-        if not search_dir.exists():
-            raise HTTPException(404, "Search session has expired. Please restart the scan.")
+    # Validate format
+    try:
+        uuid.UUID(search_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid search ID format.")
 
-        metadata_path = search_dir / "metadata.json"
+    search_dir = RESULTS_DIR / search_id
+    metadata_path = search_dir / "metadata.json"
+
+    if search_dir.exists():
         if metadata_path.exists():
             try:
                 with open(metadata_path, "r") as f_meta:
@@ -730,18 +720,20 @@ async def match_batch(
                 raise
             except Exception:
                 raise HTTPException(403, "Access denied.")
-        else:
-            raise HTTPException(404, "Search session metadata missing.")
-
-        # Update metadata timestamp
+        
         try:
-            with open(metadata_path, "r") as f_meta:
-                meta = json.load(f_meta)
-            meta["created_at"] = time.time()
             with open(metadata_path, "w") as f_meta:
-                json.dump(meta, f_meta)
+                json.dump({"owner_id": user_id, "created_at": time.time()}, f_meta)
         except Exception:
             pass
+    else:
+        search_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(metadata_path, "w") as f_meta:
+                json.dump({"owner_id": user_id, "created_at": time.time()}, f_meta)
+        except Exception as e:
+            logger.error("Failed to write search session metadata: %s", e)
+            raise HTTPException(500, "Failed to initialize search session.")
 
     if matches:
         for fname, fbytes in match_images.items():
