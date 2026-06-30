@@ -1616,7 +1616,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 let processed = 0;
                 let totalMatched = 0;
                 let allMatchedNames = [];
-                const BATCH_SIZE = 5;
+                const BATCH_SIZE = 2;
                 let batch = [];  // { blob, name } — FULL original (but resized) images that have faces
 
                 for (const file of driveFiles) {
