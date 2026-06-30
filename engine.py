@@ -49,7 +49,7 @@ SUPPORTED_EXTS   = {
 REF_MAX_SIZE     = 1024
 REF_NUM_JITTERS  = 5
 
-SCAN_MAX_SIZE    = 1600
+SCAN_MAX_SIZE    = 1024
 SCAN_QUALITY     = 85
 
 
@@ -607,13 +607,6 @@ def _process_image_bytes(
                 img_arr,
                 number_of_times_to_upsample=upsample,
                 model=model_type,
-            )
-
-        if not locations and model_type == "hog" and upsample < 2:
-            locations = face_recognition.face_locations(
-                img_clahe,
-                number_of_times_to_upsample=2,
-                model="hog",
             )
 
         if not locations:

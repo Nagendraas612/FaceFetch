@@ -1646,8 +1646,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                             continue;
                         }
 
-                        // Step 4: Face detected! Resize the full image to max 1600px to optimize upload size
-                        const resizedBlob = await resizeImage(imgEl, 1600);
+                        // Step 4: Face detected! Resize the full image to max 1024px to optimize upload size
+                        const resizedBlob = await resizeImage(imgEl, 1024);
                         URL.revokeObjectURL(imgUrl);
 
                         batch.push({ blob: resizedBlob, name: fileName });
