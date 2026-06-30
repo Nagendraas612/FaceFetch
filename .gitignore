@@ -23,4 +23,7 @@ local_data.json
 # Mac OS junk files
 .DS_Store
 .vercel
+search_results/
+selfie.jpg
+event_photo.jpg
 

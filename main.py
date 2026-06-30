@@ -29,6 +29,7 @@ import os
 import re
 import requests
 import secrets
+import shutil
 import time
 import uuid
 import zipfile
@@ -40,6 +41,7 @@ from typing import AsyncGenerator
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import (
+    BackgroundTasks,
     FastAPI,
     File,
     Form,
@@ -51,6 +53,7 @@ from fastapi.responses import (
     HTMLResponse,
     Response,
     StreamingResponse,
+    FileResponse,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -92,6 +95,7 @@ if not SESSION_SECRET:
     logger.warning("⚠ No SESSION_SECRET set — using random key (sessions won't survive restarts)")
 
 BASE_DIR = Path(__file__).parent
+RESULTS_DIR = BASE_DIR / "search_results"
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 MAX_UPLOAD_SIZE             = 10 * 1024 * 1024   # 10 MB
@@ -115,12 +119,10 @@ TOLERANCE_MAX = 0.70
 # Security: Allowed origins (configure per deployment)
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
-# ── In-memory stores ─────────────────────────────────────────────────────────
-_zip_store:        dict[str, dict]          = {}
+# ── In-memory stores (Disk-Backed) ────────────────────────────────────────────
 _upload_rate:      dict[str, list[float]]   = defaultdict(list)
 _scan_rate:        dict[str, list[float]]   = defaultdict(list)
 _download_rate:    dict[str, list[float]]   = defaultdict(list)
-_user_zip_access:  dict[str, str]           = {}  # search_id -> user_id mapping
 
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
@@ -142,42 +144,119 @@ def _check_rate_limit(
     store[user_id].append(now)
 
 
-# ── ZIP store helpers ─────────────────────────────────────────────────────────
+# ── ZIP store helpers (Disk-Backed) ───────────────────────────────────────────
+def _build_zip_on_disk(search_dir: Path):
+    zip_path = search_dir / "matches.zip"
+    images = []
+    if search_dir.exists():
+        for p in search_dir.iterdir():
+            if p.name not in ("metadata.json", "matches.zip") and not p.name.startswith("custom_") and p.is_file():
+                images.append(p)
+    
+    temp_zip = search_dir / "matches.zip.tmp"
+    seen: dict[str, int] = {}
+    with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        for img_path in images:
+            name = img_path.name
+            if name in seen:
+                seen[name] += 1
+                base, _, ext = name.rpartition(".")
+                unique_name = f"{base}_{seen[name]}.{ext}" if ext else f"{name}_{seen[name]}"
+            else:
+                seen[name] = 0
+                unique_name = name
+            zf.write(img_path, arcname=unique_name)
+            
+    if temp_zip.exists():
+        temp_zip.replace(zip_path)
+
+
+def _save_search_zip_to_disk(search_id: str, user_id: str, zip_bytes: bytes) -> list[str]:
+    search_dir = RESULTS_DIR / search_id
+    search_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save metadata
+    metadata = {
+        "owner_id": user_id,
+        "created_at": time.time()
+    }
+    with open(search_dir / "metadata.json", "w") as f:
+        json.dump(metadata, f)
+        
+    # Save ZIP
+    with open(search_dir / "matches.zip", "wb") as f:
+        f.write(zip_bytes)
+        
+    # Extract images to disk
+    filenames = []
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        for name in zf.namelist():
+            safe_name = Path(name).name
+            if safe_name:
+                filenames.append(safe_name)
+                with open(search_dir / safe_name, "wb") as f_out:
+                    f_out.write(zf.read(name))
+    return filenames
+
+
 def _cleanup_zip_store():
-    now     = time.time()
-    expired = [
-        sid for sid, entry in _zip_store.items()
-        if now - entry["created_at"] > ZIP_TTL_SECONDS
-    ]
-    for sid in expired:
-        del _zip_store[sid]
-        # Clean up access mapping
-        if sid in _user_zip_access:
-            del _user_zip_access[sid]
-    if expired:
-        logger.info("🗑 Cleaned up %d expired ZIP(s)", len(expired))
+    if not RESULTS_DIR.exists():
+        return
+    
+    now = time.time()
+    deleted_count = 0
+    
+    for item in RESULTS_DIR.iterdir():
+        if item.is_dir():
+            metadata_path = item / "metadata.json"
+            expired = False
+            if metadata_path.exists():
+                try:
+                    with open(metadata_path, "r") as f:
+                        meta = json.load(f)
+                    created_at = meta.get("created_at", 0)
+                    if now - created_at > ZIP_TTL_SECONDS:
+                        expired = True
+                except Exception:
+                    expired = True
+            else:
+                try:
+                    stat = item.stat()
+                    if now - stat.st_mtime > ZIP_TTL_SECONDS:
+                        expired = True
+                except Exception:
+                    pass
+            
+            if expired:
+                try:
+                    shutil.rmtree(item)
+                    deleted_count += 1
+                except Exception as e:
+                    logger.warning("Failed to delete expired directory %s: %s", item, e)
+                    
+    if deleted_count > 0:
+        logger.info("🗑 Cleaned up %d expired search session directory(ies) on disk", deleted_count)
 
 
 def _zip_store_size_mb() -> float:
-    return sum(len(e["data"]) for e in _zip_store.values()) / (1024 * 1024)
-
-
-def _extract_images_from_zip(zip_bytes: bytes) -> dict[str, bytes]:
-    images = {}
+    if not RESULTS_DIR.exists():
+        return 0.0
+    total_size = 0
     try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            for name in zf.namelist():
-                images[name] = zf.read(name)
+        for root, dirs, files in os.walk(RESULTS_DIR):
+            for f in files:
+                fp = Path(root) / f
+                if fp.exists():
+                    total_size += fp.stat().st_size
     except Exception as e:
-        logger.error("Error extracting images from ZIP: %s", e)
-    return images
-
+        logger.warning("Error calculating search results directory size: %s", e)
+    return total_size / (1024 * 1024)
 
 
 async def _periodic_cleanup():
     while True:
         await asyncio.sleep(300)
-        _cleanup_zip_store()
+        await asyncio.get_running_loop().run_in_executor(None, _cleanup_zip_store)
 
 
 # ── App lifecycle ─────────────────────────────────────────────────────────────
@@ -282,11 +361,17 @@ async def privacy_policy(request: Request):
 
 @app.get("/health")
 async def health():
+    zip_count = 0
+    if RESULTS_DIR.exists():
+        try:
+            zip_count = sum(1 for item in RESULTS_DIR.iterdir() if item.is_dir())
+        except Exception:
+            pass
     return {
         "status": "ok",
         "mongo":  await database.ping(),
         "store": {
-            "zip_count":   len(_zip_store),
+            "zip_count":   zip_count,
             "zip_size_mb": round(_zip_store_size_mb(), 2),
         },
     }
@@ -614,6 +699,15 @@ async def match_batch(
 
     if not search_id:
         search_id = str(uuid.uuid4())
+        search_dir = RESULTS_DIR / search_id
+        search_dir.mkdir(parents=True, exist_ok=True)
+        # Create metadata
+        metadata = {
+            "owner_id": user_id,
+            "created_at": time.time()
+        }
+        with open(search_dir / "metadata.json", "w") as f_meta:
+            json.dump(metadata, f_meta)
     else:
         # Validate format
         try:
@@ -621,31 +715,48 @@ async def match_batch(
         except ValueError:
             raise HTTPException(400, "Invalid search ID format.")
 
-    if search_id in _zip_store:
-        # Accumulate to existing
-        existing_entry = _zip_store[search_id]
-        if matches:
-            existing_entry["images"].update(match_images)
-            zip_data = engine._build_zip(list(existing_entry["images"].items()))
-            existing_entry["data"] = zip_data
-            existing_entry["created_at"] = time.time()
-    else:
-        # Initialize new
-        if matches:
-            zip_data = engine._build_zip(list(match_images.items()))
-        else:
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED):
-                pass
-            buf.seek(0)
-            zip_data = buf.read()
+        search_dir = RESULTS_DIR / search_id
+        if not search_dir.exists():
+            raise HTTPException(404, "Search session has expired. Please restart the scan.")
 
-        _zip_store[search_id] = {
-            "data": zip_data,
-            "images": match_images,
-            "created_at": time.time(),
-        }
-        _user_zip_access[search_id] = user_id
+        metadata_path = search_dir / "metadata.json"
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, "r") as f_meta:
+                    meta = json.load(f_meta)
+                if meta.get("owner_id") != user_id:
+                    raise HTTPException(403, "Access denied.")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(403, "Access denied.")
+        else:
+            raise HTTPException(404, "Search session metadata missing.")
+
+        # Update metadata timestamp
+        try:
+            with open(metadata_path, "r") as f_meta:
+                meta = json.load(f_meta)
+            meta["created_at"] = time.time()
+            with open(metadata_path, "w") as f_meta:
+                json.dump(meta, f_meta)
+        except Exception:
+            pass
+
+    if matches:
+        for fname, fbytes in match_images.items():
+            safe_fname = Path(fname).name
+            with open(search_dir / safe_fname, "wb") as f_img:
+                f_img.write(fbytes)
+
+        await asyncio.get_running_loop().run_in_executor(
+            None, _build_zip_on_disk, search_dir
+        )
+    else:
+        zip_path = search_dir / "matches.zip"
+        if not zip_path.exists():
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                pass
 
     return {
         "matches": matches,
@@ -765,17 +876,15 @@ async def search(
                     ),
                 })
             else:
-                _zip_store[search_id] = {
-                    "data": zip_bytes,
-                    "images": _extract_images_from_zip(zip_bytes),
-                    "created_at": time.time()
-                }
-                _user_zip_access[search_id] = user_id  # Track ownership for authorization
+                filenames = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    _save_search_zip_to_disk,
+                    search_id, user_id, zip_bytes
+                )
                 logger.info(
-                    "✓ ZIP stored: id=%s, size=%d bytes, files=%d, user=%s",
+                    "✓ ZIP stored on disk: id=%s, size=%d bytes, files=%d, user=%s",
                     search_id, len(zip_bytes), matched, user_id,
                 )
-                filenames = list(_zip_store[search_id]["images"].keys())
                 yield _sse({
                     "type":      "done",
                     "search_id": search_id,
@@ -889,17 +998,15 @@ async def search_local(
                     ),
                 })
             else:
-                _zip_store[search_id] = {
-                    "data": zip_bytes,
-                    "images": _extract_images_from_zip(zip_bytes),
-                    "created_at": time.time()
-                }
-                _user_zip_access[search_id] = user_id  # Track ownership for authorization
+                filenames = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    _save_search_zip_to_disk,
+                    search_id, user_id, zip_bytes
+                )
                 logger.info(
-                    "✓ ZIP stored: id=%s, size=%d bytes, files=%d, user=%s",
+                    "✓ ZIP stored on disk: id=%s, size=%d bytes, files=%d, user=%s",
                     search_id, len(zip_bytes), matched, user_id,
                 )
-                filenames = list(_zip_store[search_id]["images"].keys())
                 yield _sse({
                     "type":      "done",
                     "search_id": search_id,
@@ -936,41 +1043,46 @@ async def download_zip(search_id: str, request: Request):
         raise HTTPException(400, "Invalid search ID format.")
 
     # Check if ZIP exists
-    entry = _zip_store.get(search_id)
-    if not entry:
+    search_dir = RESULTS_DIR / search_id
+    zip_path = search_dir / "matches.zip"
+    metadata_path = search_dir / "metadata.json"
+
+    if not search_dir.exists() or not zip_path.exists() or not metadata_path.exists():
         raise HTTPException(
             404,
             "ZIP not found or expired. Results are kept for 30 minutes after scanning.",
         )
 
     # Authorization check: verify user owns this search result
-    if search_id in _user_zip_access:
-        if _user_zip_access[search_id] != user_id:
+    try:
+        with open(metadata_path, "r") as f_meta:
+            meta = json.load(f_meta)
+        owner_id = meta.get("owner_id")
+        if owner_id != user_id:
             logger.warning(
                 "⚠️ Unauthorized ZIP access attempt: user %s tried to access %s (owned by %s)",
-                user_id, search_id, _user_zip_access[search_id]
+                user_id, search_id, owner_id
             )
             raise HTTPException(403, "Access denied. This search belongs to another user.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(403, "Access denied.")
 
-    zip_data = entry["data"]
-    
-    # ZIP bomb protection: check uncompressed size
-    if len(zip_data) > MAX_ZIP_SIZE:
-        logger.error("🚨 Potential ZIP bomb detected: %d bytes", len(zip_data))
+    # ZIP bomb protection: check file size
+    zip_size = zip_path.stat().st_size
+    if zip_size > MAX_ZIP_SIZE:
+        logger.error("🚨 Potential ZIP bomb detected: %d bytes", zip_size)
         raise HTTPException(413, "ZIP file too large. This might indicate a problem.")
     
     filename = f"facefetch_matches_{search_id[:8]}.zip"
-    # Sanitize filename for download
     safe_filename = _sanitize_filename(filename)
 
-    return Response(
-        content=zip_data,
-        status_code=200,
+    return FileResponse(
+        path=str(zip_path),
+        filename=safe_filename,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{safe_filename}"',
-            "Content-Length":      str(len(zip_data)),
-            "Content-Type":        "application/octet-stream",
             "Cache-Control":       "no-store, no-cache, must-revalidate, private",
             "Pragma":              "no-cache",
             "Expires":             "0",
@@ -978,7 +1090,6 @@ async def download_zip(search_id: str, request: Request):
     )
 
 
-# ── Matched results serving ───────────────────────────────────────────────────
 @app.get("/result-image/{search_id}/{filename}")
 async def get_result_image(search_id: str, filename: str, request: Request):
     """Serve a specific matched photo from the search run."""
@@ -990,26 +1101,38 @@ async def get_result_image(search_id: str, filename: str, request: Request):
     except ValueError:
         raise HTTPException(400, "Invalid search ID format.")
 
-    if search_id in _user_zip_access:
-        if _user_zip_access[search_id] != user_id:
-            raise HTTPException(403, "Access denied.")
+    safe_img_name = Path(filename).name
+    search_dir = RESULTS_DIR / search_id
+    img_path = search_dir / safe_img_name
 
-    entry = _zip_store.get(search_id)
-    if not entry or "images" not in entry:
+    if not search_dir.exists() or not img_path.exists():
         raise HTTPException(404, "Search results expired or not found.")
 
-    img_bytes = entry["images"].get(filename)
-    if not img_bytes:
-        raise HTTPException(404, "Image not found in results.")
+    if not img_path.resolve().is_relative_to(search_dir.resolve()):
+        raise HTTPException(400, "Invalid filename.")
 
-    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    metadata_path = search_dir / "metadata.json"
+    if not metadata_path.exists():
+        raise HTTPException(404, "Search session metadata missing.")
+        
+    try:
+        with open(metadata_path, "r") as f_meta:
+            meta = json.load(f_meta)
+        if meta.get("owner_id") != user_id:
+            raise HTTPException(403, "Access denied.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(403, "Access denied.")
+
+    ext = img_path.suffix.lower()
     media_type = "image/jpeg"
     if ext == ".png":
         media_type = "image/png"
     elif ext == ".webp":
         media_type = "image/webp"
 
-    return Response(content=img_bytes, media_type=media_type)
+    return FileResponse(path=str(img_path), media_type=media_type)
 
 
 from pydantic import BaseModel
@@ -1023,6 +1146,7 @@ async def download_selected(
     search_id: str,
     request:   Request,
     payload:   DownloadSelectedPayload,
+    background_tasks: BackgroundTasks,
 ):
     """Download a subset of matched photos as a ZIP."""
     user = auth.require_user(request)
@@ -1033,40 +1157,69 @@ async def download_selected(
     except ValueError:
         raise HTTPException(400, "Invalid search ID format.")
 
-    if search_id in _user_zip_access:
-        if _user_zip_access[search_id] != user_id:
-            raise HTTPException(403, "Access denied.")
+    search_dir = RESULTS_DIR / search_id
+    metadata_path = search_dir / "metadata.json"
 
-    entry = _zip_store.get(search_id)
-    if not entry or "images" not in entry:
+    if not search_dir.exists() or not metadata_path.exists():
         raise HTTPException(404, "Search results expired or not found.")
+
+    try:
+        with open(metadata_path, "r") as f_meta:
+            meta = json.load(f_meta)
+        if meta.get("owner_id") != user_id:
+            raise HTTPException(403, "Access denied.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(403, "Access denied.")
 
     filenames = payload.filenames
     if not filenames:
         raise HTTPException(400, "No filenames provided.")
 
-    zip_buf = io.BytesIO()
-    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-        for name in filenames:
-            img_bytes = entry["images"].get(name)
-            if img_bytes:
-                zf.writestr(name, img_bytes)
-                
-    zip_buf.seek(0)
-    custom_zip_data = zip_buf.read()
+    temp_zip_name = f"custom_{uuid.uuid4().hex}.zip"
+    temp_zip_path = search_dir / temp_zip_name
+
+    def _build_custom_zip():
+        seen: dict[str, int] = {}
+        with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+            for name in filenames:
+                safe_name = Path(name).name
+                img_path = search_dir / safe_name
+                if img_path.exists() and img_path.resolve().is_relative_to(search_dir.resolve()):
+                    if safe_name not in ("metadata.json", "matches.zip") and not safe_name.startswith("custom_"):
+                        if safe_name in seen:
+                            seen[safe_name] += 1
+                            base, _, ext = safe_name.rpartition(".")
+                            unique_name = f"{base}_{seen[safe_name]}.{ext}" if ext else f"{safe_name}_{seen[safe_name]}"
+                        else:
+                            seen[safe_name] = 0
+                            unique_name = safe_name
+                        zf.write(img_path, arcname=unique_name)
+
+    await asyncio.get_running_loop().run_in_executor(None, _build_custom_zip)
+
+    if not temp_zip_path.exists():
+        raise HTTPException(500, "Failed to create download package.")
+
+    def _cleanup_temp_file(path: Path):
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception as e:
+            logger.warning("Failed to clean up temporary ZIP %s: %s", path, e)
+
+    background_tasks.add_task(_cleanup_temp_file, temp_zip_path)
 
     filename = f"facefetch_selected_{search_id[:8]}.zip"
     safe_filename = _sanitize_filename(filename)
 
-    return Response(
-        content=custom_zip_data,
-        status_code=200,
+    return FileResponse(
+        path=str(temp_zip_path),
+        filename=safe_filename,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{safe_filename}"',
-            "Content-Length":      str(len(custom_zip_data)),
-            "Content-Type":        "application/octet-stream",
-            "Cache-Control":       "no-store, no-cache, must-revalidate, private",
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
         },
     )
 
