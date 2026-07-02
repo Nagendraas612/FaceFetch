@@ -1089,15 +1089,9 @@ function setSelectedFiles(files) {
 function setMode(m) {
     scanMode = m;
     const pill = document.getElementById('model-pill');
-    document.getElementById('mode-speed').className = 'mode-btn' + (m === 'speed'    ? ' active-speed' : '');
-    document.getElementById('mode-acc').className   = 'mode-btn' + (m === 'accurate' ? ' active-acc'   : '');
-    if (m === 'speed') {
-        pill.textContent = 'HOG · Fast';
-        pill.className   = 'pill pill-amber';
-    } else {
-        pill.textContent = 'CNN · Accurate';
-        pill.className   = 'pill pill-green';
-    }
+    document.getElementById('mode-speed').className = 'mode-btn active-speed';
+    pill.textContent = 'HOG · Fast';
+    pill.className   = 'pill pill-amber';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1561,8 +1555,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         slider.style.opacity = '0.5';
         document.getElementById('mode-speed').disabled = true;
         document.getElementById('mode-speed').style.opacity = '0.5';
-        document.getElementById('mode-acc').disabled = true;
-        document.getElementById('mode-acc').style.opacity = '0.5';
 
         // Reset stats
         ['st-scanned','st-matched','st-rate','live-ct','prog-count'].forEach(id => {
@@ -1576,6 +1568,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const model = 'hog'; // CNN disabled on Free Tier due to Memory Limits
         const upsample = 1;
 
+        try {
         // ════════════════════════════════════════════
         // HYBRID PATH: Use client-side face detection
         // ════════════════════════════════════════════
@@ -1813,7 +1806,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        // ── Cleanup (runs for both hybrid and fallback paths)
+        } finally {
+        // ── Cleanup (ALWAYS runs for both hybrid and fallback paths)
         isScanning = false;
         btnScan.disabled    = false;
         btnScan.textContent = 'Start Deep Search';
@@ -1828,8 +1822,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         slider.style.opacity = '1';
         document.getElementById('mode-speed').disabled = false;
         document.getElementById('mode-speed').style.opacity = '1';
-        document.getElementById('mode-acc').disabled = false;
-        document.getElementById('mode-acc').style.opacity = '1';
+        }
     });
 
     // ── Handle OAuth error from redirect

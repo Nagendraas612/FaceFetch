@@ -547,6 +547,9 @@ async def list_drive_files(
     drv_token     = request.session.get("drive_token", "")
     refresh_token = await database.get_refresh_token(user_id)
 
+    logger.info("list-drive-files: user=%s, has_drv_token=%s, has_refresh_token=%s",
+                user_id, bool(drv_token), bool(refresh_token))
+
     if not drv_token and not refresh_token and not engine.GOOGLE_API_KEY:
         raise HTTPException(
             401,
@@ -565,8 +568,20 @@ async def list_drive_files(
             token_state["_use_api_key"] = True
 
         folder_id = engine._folder_id_from_link(drive_link)
-        files = list(engine._list_drive_files(folder_id, token_state))
+        logger.info("list-drive-files: listing folder_id=%s", folder_id)
+
+        # Run the blocking Drive API call in a thread with a 60s timeout
+        loop = asyncio.get_running_loop()
+        files = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: list(engine._list_drive_files(folder_id, token_state))),
+            timeout=60.0,
+        )
+
+        logger.info("list-drive-files: found %d files", len(files))
         return {"files": files, "total": len(files)}
+    except asyncio.TimeoutError:
+        logger.error("list-drive-files timed out after 60s for folder %s", drive_link)
+        raise HTTPException(504, "Google Drive request timed out. Please try again.")
     except ValueError as e:
         raise HTTPException(400, str(e))
     except requests.exceptions.HTTPError as e:
@@ -578,6 +593,7 @@ async def list_drive_files(
             detail = "Access denied to Google Drive folder. Please verify the folder's sharing permissions."
         elif status_code == 401:
             detail = "Your Google login session has expired. Please log out and log in again to refresh access."
+        logger.error("list-drive-files HTTPError %d: %s", status_code, detail)
         raise HTTPException(status_code=status_code, detail=detail)
     except Exception as e:
         logger.error("list-drive-files failed: %s", e)
