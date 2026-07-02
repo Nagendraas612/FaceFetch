@@ -1528,6 +1528,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!driveUrl && localFiles.length === 0)
             return toast('⚠ Provide a Drive link OR upload local photos', 'error');
 
+        // Block scan if no Face DNA is saved
+        const dnaBadge = document.getElementById('dna-badge');
+        if (!dnaBadge || dnaBadge.classList.contains('hidden')) {
+            return toast('⚠ Upload your selfies first! Go to Face DNA (Card 01) and save at least one reference photo.', 'error');
+        }
+
         const btnScan   = document.getElementById('btn-search');
         const btnCancel = document.getElementById('btn-cancel');
         const progArea  = document.getElementById('progress-area');
