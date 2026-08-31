@@ -215,7 +215,7 @@
             <p>FaceFetch connects with Google OAuth to authenticate you and scan your designated Google Drive folders. Here is what we access:</p>
             <ul>
                 <li><strong>Email &amp; Profile Info:</strong> Used to create and secure your user account, authorize scans, and manage your custom Face DNA records.</li>
-                <li><strong>Google Drive Read Scope (<span class="mono">drive.readonly</span>):</strong> We request read-only access to files in the Google Drive folder you provide. This is used solely to read and scan image pixels for face-matching. We never modify, write, delete, or share any files in your Google Drive.</li>
+                <li><strong>Google Drive File Scope (<span class="mono">drive.file</span>):</strong> We request access to only the specific files or folders you choose through the Google Picker. This is used solely to read and scan image pixels for face-matching. We never modify, write, delete, or share any files in your Google Drive.</li>
                 <li><strong>Data Transmission:</strong> The scanning process pulls temporary image bytes into server memory, runs the face detection process in memory, and puts matching images into a temporary ZIP bundle. The scanned data is processed in-memory and never cached permanently on disk.</li>
             </ul>
 

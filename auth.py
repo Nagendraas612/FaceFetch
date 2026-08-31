@@ -50,7 +50,7 @@ oauth.register(
     client_kwargs={
         "scope": (
             "openid email profile "
-            "https://www.googleapis.com/auth/drive.readonly"
+            "https://www.googleapis.com/auth/drive.file"
         ),
         "prompt": "select_account consent",
         "access_type": "offline",
