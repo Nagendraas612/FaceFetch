@@ -333,6 +333,15 @@ async def privacy_policy(request: Request):
         raise HTTPException(status_code=500, detail="privacy.html missing")
 
 
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_of_service(request: Request):
+    try:
+        return HTMLResponse((BASE_DIR / "terms.html").read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.error("Error loading terms.html: %s", e)
+        raise HTTPException(status_code=500, detail="terms.html missing")
+
+
 
 @app.get("/health")
 async def health():

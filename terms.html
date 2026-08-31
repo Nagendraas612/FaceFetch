@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service | EventAI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:          #030712;
+            --bg-glass:    rgba(10, 15, 30, 0.75);
+            --surface:     rgba(255, 255, 255, 0.03);
+            --border:      rgba(255, 255, 255, 0.08);
+            --border-hi:   rgba(56, 189, 248, 0.3);
+            --accent:      #38bdf8;
+            --accent-grad: linear-gradient(135deg, #38bdf8 0%, #3b82f6 100%);
+            --purple-grad: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+            --green:       #4ade80;
+            --amber:       #fbbf24;
+            --red:         #f87171;
+            --text:        #f8fafc;
+            --muted:       #94a3b8;
+            --font-sans:   'Plus Jakarta Sans', sans-serif;
+            --font-mono:   'JetBrains Mono', monospace;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            line-height: 1.7;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .bg-fx {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
+        }
+        .bg-fx::before {
+            content: '';
+            position: absolute;
+            width: 1000px; height: 1000px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 65%);
+            top: -400px; left: -300px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 4rem auto;
+            padding: 1.5rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .card {
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: 1.25rem;
+            padding: 3rem;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+            position: relative;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+
+        .logo-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: var(--purple-grad);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.15rem;
+            box-shadow: 0 4px 15px rgba(139, 92, 246, 0.25);
+        }
+
+        .logo-text {
+            font-family: var(--font-sans);
+            font-weight: 850;
+            font-size: 1.6rem;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #ffffff 40%, var(--accent));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(to right, #ffffff, var(--accent));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #fff;
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+        }
+
+        p, li {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        ul {
+            padding-left: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.03);
+            color: #fff;
+            border: 1px solid var(--border);
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            margin-top: 2rem;
+            transition: all 0.2s;
+        }
+
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: var(--border-hi);
+            transform: translateY(-1px);
+        }
+
+        .mono {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 3rem;
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: rgba(148, 163, 184, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-fx"></div>
+    <div class="container">
+        <div class="card">
+            <div class="logo-section">
+                <div class="logo-icon">⚡</div>
+                <span class="logo-text">FaceFetch</span>
+            </div>
+
+            <h1>Terms of Service</h1>
+            <p class="mono" style="font-size: 0.75rem; color: var(--muted);">Effective Date: June 29, 2026</p>
+
+            <p>Welcome to FaceFetch, an AI-powered application that helps users find photographs of themselves from event photo collections. By accessing or using FaceFetch, you agree to these Terms of Service.</p>
+
+            <h2>1. Description of the Service</h2>
+            <p>FaceFetch allows users to:</p>
+            <ul>
+                <li>Sign in using their Google Account.</li>
+                <li>Select authorized Google Drive folders containing event photographs.</li>
+                <li>Upload reference photographs for facial matching.</li>
+                <li>Use facial recognition technology to identify photographs that may contain the user.</li>
+                <li>Download matching photographs generated by the service.</li>
+            </ul>
+            <p>The service is provided for personal and legitimate event-photo searching purposes.</p>
+
+            <h2>2. Google Account and Google Drive Access</h2>
+            <p>FaceFetch uses Google OAuth to authenticate users and access the Google Drive data required for the service. By authorizing FaceFetch, you allow the application to access the Google Drive files and folders covered by the permissions displayed during the Google authorization process.</p>
+            <p>You remain responsible for the Google Drive content you provide access to. You may revoke FaceFetch's access to your Google Account at any time through your Google Account settings.</p>
+
+            <h2>3. Facial Recognition and Biometric Data</h2>
+            <p>FaceFetch processes facial information from reference photographs to generate facial representations used for matching photographs. You should only upload photographs and use the service when you have the necessary rights and permissions to process that information.</p>
+            <p>FaceFetch should not be used to identify or track individuals without appropriate authorization or consent. For information about how facial information and Google user data are handled, please see our <a href="/privacy" style="color: var(--accent); text-decoration: none;">Privacy Policy</a>.</p>
+
+            <h2>4. User Responsibilities</h2>
+            <p>You agree to:</p>
+            <ul>
+                <li>Use FaceFetch only for lawful purposes.</li>
+                <li>Provide accurate information when using the service.</li>
+                <li>Use only Google Drive folders and photographs that you are authorized to access.</li>
+                <li>Respect the privacy and rights of other individuals.</li>
+                <li>Not use the service for harassment, surveillance, discrimination, or unlawful identification.</li>
+                <li>Not attempt to interfere with, damage, or gain unauthorized access to the service.</li>
+            </ul>
+
+            <h2>5. Photo and Content Responsibility</h2>
+            <p>You retain responsibility for the photographs and other content you provide to FaceFetch. FaceFetch does not claim ownership of your photographs. You are responsible for ensuring that you have the necessary rights or permissions to use and process photographs submitted to the service.</p>
+
+            <h2>6. Data and Temporary Files</h2>
+            <p>FaceFetch may temporarily process photographs and generate temporary files while performing searches. Temporary search results and generated files may be automatically deleted according to the application's retention procedures. For detailed information about storage, deletion, Google data, and facial information, please refer to the <a href="/privacy" style="color: var(--accent); text-decoration: none;">Privacy Policy</a>.</p>
+
+            <h2>7. Service Availability</h2>
+            <p>FaceFetch is provided on an "as is" and "as available" basis. We do not guarantee that the service will always be available, error-free, or that every photograph containing a particular person will be correctly identified. Facial recognition results may contain false positives or false negatives.</p>
+
+            <h2>8. Third-Party Services</h2>
+            <p>FaceFetch relies on third-party services such as Google OAuth, Google Drive API, and hosting/infrastructure providers. Your use of these third-party services may also be subject to their respective terms and policies.</p>
+
+            <h2>9. Changes to the Service</h2>
+            <p>We may modify, update, suspend, or discontinue parts of FaceFetch when necessary. We may also update these Terms of Service from time to time. Updated terms will be published on this page.</p>
+
+            <h2>10. Termination</h2>
+            <p>You may stop using FaceFetch at any time. We may restrict or terminate access to the service if we reasonably believe that a user has violated these Terms or is using the service unlawfully or abusively.</p>
+
+            <h2>11. Contact</h2>
+            <p>If you have questions about these Terms of Service or the FaceFetch application, please contact:</p>
+            <p class="mono" style="color: #fff; background: rgba(255,255,255,0.02); padding: 0.5rem 1rem; border-radius: 0.5rem; display: inline-block;">Email: contact.eventai@gmail.com</p>
+
+            <h2>12. Acceptance</h2>
+            <p>By using FaceFetch, you acknowledge that you have read and understood these Terms of Service and agree to be bound by them.</p>
+
+            <a href="/" class="btn-back">&larr; RETURN TO EVENTAI</a>
+        </div>
+
+        <footer>
+            &copy; 2026 EVENTAI &middot; POWERED BY ADVANCED ML &middot; SECURE &amp; COMPLIANT
+        </footer>
+    </div>
+</body>
+</html>
